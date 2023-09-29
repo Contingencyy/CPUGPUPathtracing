@@ -204,26 +204,53 @@ struct Sphere
 
 void IntersectSphere(const Sphere& sphere, Ray& ray)
 {
-	// Sphere: (P - C) * (P - C) - r² = 0
-	// Ray: P(t) = O + tD
+	float t0, t1;
+#if 0
+	Vec3 L = sphere.center - ray.origin;
+	float tca = Vec3Dot(L, ray.direction);
 
-	Vec3 C = sphere.center - ray.origin;
-	float t = Vec3Dot(C, ray.direction);
-
-	Vec3 Q = C - t * ray.direction;
-	float p2 = Vec3Dot(Q, Q);
-
-	if (p2 > sphere.radius_sq)
+	if (tca < 0.0f)
 	{
 		return;
 	}
 
-	t -= std::sqrt(sphere.radius_sq - p2);
-	if ((t < ray.t) && (t > 0.0f))
+	float d2 = Vec3Dot(L, L) - tca * tca;
+
+	if (d2 > sphere.radius_sq)
 	{
-		ray.t = t;
-		ray.payload.color = Vec4(1.0f, 0.0f, 1.0f, 1.0f);
+		return;
 	}
+
+	float thc = std::sqrtf(sphere.radius_sq - d2);
+	t0 = tca - thc;
+	t1 = tca + thc;
+#else
+	Vec3 L = ray.origin - sphere.center;
+	float a = Vec3Dot(ray.direction, ray.direction);
+	float b = 2 * Vec3Dot(ray.direction, L);
+	float c = Vec3Dot(L, L) - sphere.radius_sq;
+
+	if (!SolveQuadratic(a, b, c, t0, t1))
+	{
+		return;
+	}
+#endif
+	if (t0 > t1)
+	{
+		std::swap(t0, t1);
+	}
+
+	if (t0 < 0.0f) {
+		t0 = t1;
+
+		if (t0 < 0.0f)
+		{
+			return;
+		}
+	}
+
+	ray.t = t1;
+	ray.payload.color = Vec4(1.0f, 0.0f, 1.0f, 1.0f);
 }
 
 void TraceRay(Ray& ray)
@@ -231,7 +258,7 @@ void TraceRay(Ray& ray)
 	Plane plane = { Vec3Normalize(Vec3(5.0f, 2.0f, 1.0f)), Vec3(0.0f, 0.0f, -5.0f)};
 	//IntersectPlane(plane, ray);
 
-	Sphere sphere = { Vec3(0.0f, 0.0f, -5.0f), 1.0f * 1.0f };
+	Sphere sphere = { Vec3(0.0f, 0.0f, -1.5f), 1.0f * 1.0f };
 	IntersectSphere(sphere, ray);
 }
 
@@ -240,7 +267,7 @@ void Render()
 	float aspect = (float)data.window_width / data.window_height;
 	float fov = 60.0f;
 
-	Vec3 camera_pos(0.0f, 0.0f, -2.0f);
+	Vec3 camera_pos(0.0f, 0.0f, 0.0f);
 	Vec3 camera_direction(0.0f, 0.0f, -1.0f);
 	Vec3 screen_center = camera_pos + Deg2Rad(fov) * camera_direction;
 	Vec3 screen_top_left = screen_center + Vec3(-aspect, 1.0f, 0.0f);
@@ -255,7 +282,7 @@ void Render()
 			const float v = (float)y * (1.0f / data.window_height);
 			const Vec3 pixel_pos = screen_top_left + u * (screen_top_right - screen_top_left) + v * (screen_bottom_left - screen_top_left);
 
-			Ray ray = { .origin = camera_pos, .direction = Vec3Normalize(pixel_pos - camera_pos) };
+			Ray ray = { camera_pos, Vec3Normalize(pixel_pos - camera_pos) };
 			TraceRay(ray);
 			data.pixels[y * data.window_width + x] = Vec4ToUint(ray.payload.color);
 		}

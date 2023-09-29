@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cmath>
 #include <utility>
 
 static constexpr float PI = 3.14159265f;
@@ -13,6 +14,35 @@ inline float Deg2Rad(float deg)
 inline float Rad2Deg(float rad)
 {
 	return rad * 180.0f / PI;
+}
+
+bool SolveQuadratic(const float a, const float b, const float c, float& x0, float& x1)
+{
+	float discr = b * b - 4 * a * c;
+
+	if (discr < 0.0f)
+	{
+		return false;
+	}
+	else if (discr == 0.0f)
+	{
+		x0 = x1 = -0.5f * b / a;
+	}
+	else
+	{
+		float q = (b > 0) ?
+			-0.5f * (b + std::sqrtf(discr)) :
+			-0.5f * (b - std::sqrtf(discr));
+		x0 = q / a;
+		x1 = c / q;
+	}
+
+	if (x0 > x1)
+	{
+		std::swap(x0, x1);
+	}
+
+	return true;
 }
 
 struct Vec2
@@ -55,9 +85,11 @@ inline Vec3 operator+(const Vec3& v0, const Vec3& v1) { return Vec3(v0.x + v1.x,
 inline Vec3 operator-(const Vec3& v0, const Vec3& v1) { return Vec3(v0.x - v1.x, v0.y - v1.y, v0.z - v1.z); }
 inline Vec3 operator*(const Vec3& v0, const float s) { return Vec3(v0.x * s, v0.y * s, v0.z * s); }
 inline Vec3 operator*(const float s, const Vec3& v0) { return Vec3(v0.x * s, v0.y * s, v0.z * s); }
+inline Vec3 operator/(const Vec3& v0, const float s) { return Vec3(v0.x / s, v0.y / s, v0.z / s); }
+inline Vec3 operator/(const float s, const Vec3& v0) { return Vec3(v0.x / s, v0.y / s, v0.z / s); }
 
 inline float Vec3Dot(const Vec3& v0, const Vec3& v1) { return v0.x * v1.x + v0.y * v1.y + v0.z * v1.z; }
-inline float Vec3Length(const Vec3& v0) { return Vec3Dot(v0, v0); }
+inline float Vec3Length(const Vec3& v0) { return std::sqrtf(Vec3Dot(v0, v0)); }
 inline Vec3 Vec3Normalize(const Vec3& v0) { float rcp_length = 1.0f / Vec3Length(v0); return v0 * rcp_length; }
 
 struct Vec4
