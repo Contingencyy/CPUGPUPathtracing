@@ -26,5 +26,8 @@
     <ClInclude Include="Include\DX12.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="Include\MathLib.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>

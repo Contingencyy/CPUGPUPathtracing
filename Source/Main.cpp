@@ -1,4 +1,5 @@
 #include "DX12.h"
+#include "MathLib.h"
 
 #define WIN32_LEAN_AND_MEAN
 #include <Windows.h>
@@ -43,11 +44,15 @@ struct Data
 {
 	// Window data
 	HWND hWnd = nullptr;
-	RECT window_rect = {};
-	RECT client_rect = {};
+	uint32_t window_width = 1280;
+	uint32_t window_height = 720;
 
 	// Application data
 	bool should_close = false;
+
+	// Render data
+	size_t num_pixels = 0;
+	uint32_t* pixels = nullptr;
 } static data;
 
 LRESULT CALLBACK WindowEventCallback(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
@@ -104,11 +109,11 @@ void CreateWindow(const CreateWindowArgs& args)
 	int screen_width = ::GetSystemMetrics(SM_CXSCREEN);
 	int screen_height = ::GetSystemMetrics(SM_CYSCREEN);
 
-	data.window_rect = { 0, 0, static_cast<LONG>(args.width), static_cast<LONG>(args.height) };
-	::AdjustWindowRect(&data.window_rect, WS_OVERLAPPEDWINDOW, FALSE);
+	RECT window_rect = { 0, 0, static_cast<LONG>(args.width), static_cast<LONG>(args.height) };
+	::AdjustWindowRect(&window_rect, WS_OVERLAPPEDWINDOW, FALSE);
 
-	int window_width = data.window_rect.right - data.window_rect.left;
-	int window_height = data.window_rect.bottom - data.window_rect.top;
+	int window_width = window_rect.right - window_rect.left;
+	int window_height = window_rect.bottom - window_rect.top;
 
 	int window_x = std::max(0, (screen_width - window_width) / 2);
 	int window_y = std::max(0, (screen_height - window_height) / 2);
@@ -121,7 +126,10 @@ void CreateWindow(const CreateWindowArgs& args)
 		throw std::runtime_error("Failed to create window");
 	}
 
-	::GetClientRect(data.hWnd, &data.client_rect);
+	RECT client_rect = {};
+	::GetClientRect(data.hWnd, &client_rect);
+	data.window_width = client_rect.right - client_rect.left;
+	data.window_height = client_rect.bottom - client_rect.top;
 	::ShowWindow(data.hWnd, 1);
 }
 
@@ -150,8 +158,108 @@ void Update(float dt)
 {
 }
 
+struct Ray
+{
+	Vec3 origin = Vec3(0.0f);
+	Vec3 direction = Vec3(0.0f);
+	float t = 1e34f;
+
+	struct Payload
+	{
+		Vec4 color = Vec4(0.0f);
+	} payload;
+};
+
+struct Plane
+{
+	Vec3 normal = Vec3(0.0f);
+	Vec3 point = Vec3(0.0f);
+};
+
+void IntersectPlane(const Plane& plane, Ray& ray)
+{
+	// Plane: P * N + d = 0
+	// Ray: P(t) = O + tD
+
+	float angle = Vec3Dot(ray.direction, plane.normal);
+
+	if (angle > 1e-6)
+	{
+		Vec3 p0 = plane.point - ray.origin;
+		float t = Vec3Dot(p0, plane.normal) / angle;
+
+		if (t < ray.t)
+		{
+			ray.t = t;
+			ray.payload.color = Vec4(1.0f, 1.0f, 0.0f, 1.0f);
+		}
+	}
+}
+
+struct Sphere
+{
+	Vec3 center = Vec3(0.0f);
+	float radius_sq = 0.0f;
+};
+
+void IntersectSphere(const Sphere& sphere, Ray& ray)
+{
+	// Sphere: (P - C) * (P - C) - r² = 0
+	// Ray: P(t) = O + tD
+
+	Vec3 C = sphere.center - ray.origin;
+	float t = Vec3Dot(C, ray.direction);
+
+	Vec3 Q = C - t * ray.direction;
+	float p2 = Vec3Dot(Q, Q);
+
+	if (p2 > sphere.radius_sq)
+	{
+		return;
+	}
+
+	t -= std::sqrt(sphere.radius_sq - p2);
+	if ((t < ray.t) && (t > 0.0f))
+	{
+		ray.t = t;
+		ray.payload.color = Vec4(1.0f, 0.0f, 1.0f, 1.0f);
+	}
+}
+
+void TraceRay(Ray& ray)
+{
+	Plane plane = { Vec3Normalize(Vec3(5.0f, 2.0f, 1.0f)), Vec3(0.0f, 0.0f, -5.0f)};
+	//IntersectPlane(plane, ray);
+
+	Sphere sphere = { Vec3(0.0f, 0.0f, -5.0f), 1.0f * 1.0f };
+	IntersectSphere(sphere, ray);
+}
+
 void Render()
 {
+	float aspect = (float)data.window_width / data.window_height;
+	float fov = 60.0f;
+
+	Vec3 camera_pos(0.0f, 0.0f, -2.0f);
+	Vec3 camera_direction(0.0f, 0.0f, -1.0f);
+	Vec3 screen_center = camera_pos + Deg2Rad(fov) * camera_direction;
+	Vec3 screen_top_left = screen_center + Vec3(-aspect, 1.0f, 0.0f);
+	Vec3 screen_top_right = screen_center + Vec3(aspect, 1.0f, 0.0f);
+	Vec3 screen_bottom_left = screen_center + Vec3(-aspect, -1.0f, 0.0f);
+
+	for (uint32_t y = 0; y < data.window_height; ++y)
+	{
+		for (uint32_t x = 0; x < data.window_width; ++x)
+		{
+			const float u = (float)x * (1.0f / data.window_width);
+			const float v = (float)y * (1.0f / data.window_height);
+			const Vec3 pixel_pos = screen_top_left + u * (screen_top_right - screen_top_left) + v * (screen_bottom_left - screen_top_left);
+
+			Ray ray = { .origin = camera_pos, .direction = Vec3Normalize(pixel_pos - camera_pos) };
+			TraceRay(ray);
+			data.pixels[y * data.window_width + x] = Vec4ToUint(ray.payload.color);
+		}
+	}
 }
 
 int main(int argc, char* argv[])
@@ -164,17 +272,17 @@ int main(int argc, char* argv[])
 
 	DX12::DX12InitArgs dx12_args = {};
 	dx12_args.hWnd = data.hWnd;
-	dx12_args.width = data.client_rect.right - data.client_rect.left;
-	dx12_args.height = data.client_rect.bottom - data.client_rect.top;
+	dx12_args.width = data.window_width;
+	dx12_args.height = data.window_height;
 	DX12::Init(dx12_args);
+
+	data.num_pixels = data.window_width * data.window_height;
+	data.pixels = (uint32_t*)malloc(data.num_pixels * sizeof(uint32_t));
+	memset(data.pixels, 0, data.num_pixels * sizeof(uint32_t));
 
 	std::chrono::high_resolution_clock::time_point curr_time = std::chrono::high_resolution_clock::now(),
 		last_time = std::chrono::high_resolution_clock::now();
 	std::chrono::duration<float> delta_time = std::chrono::duration<float>(0.0f);
-
-	size_t pixels_byte_size = dx12_args.width * dx12_args.height * 4;
-	uint32_t* test_pixels = (uint32_t*)malloc(pixels_byte_size);
-	memset(test_pixels, 128, pixels_byte_size);
 
 	while (!data.should_close)
 	{
@@ -185,13 +293,13 @@ int main(int argc, char* argv[])
 		Update(delta_time.count());
 		Render();
 
-		DX12::CopyToBackBuffer(test_pixels, pixels_byte_size);
+		DX12::CopyToBackBuffer(data.pixels, data.num_pixels * sizeof(uint32_t));
 		DX12::Present();
 
 		last_time = curr_time;
 	}
 
-	free(test_pixels);
+	free(data.pixels);
 
 	DX12::Exit();
 
