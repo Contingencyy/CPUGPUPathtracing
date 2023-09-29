@@ -39,6 +39,38 @@
 #include <stdint.h>
 #include <stdexcept>
 #include <chrono>
+#include <vector>
+
+enum ObjectType : uint8_t
+{
+	ObjectType_Plane,
+	ObjectType_Sphere
+};
+
+struct Ray
+{
+	Vec3 origin = Vec3(0.0f);
+	Vec3 direction = Vec3(0.0f);
+	float t = 1e34f;
+
+	struct Payload
+	{
+		ObjectType object_type;
+		void* object_ptr;
+	} payload;
+};
+
+struct Plane
+{
+	Vec3 normal = Vec3(0.0f);
+	Vec3 point = Vec3(0.0f);
+};
+
+struct Sphere
+{
+	Vec3 center = Vec3(0.0f);
+	float radius_sq = 0.0f;
+};
 
 struct Data
 {
@@ -51,8 +83,9 @@ struct Data
 	bool should_close = false;
 
 	// Render data
-	size_t num_pixels = 0;
-	uint32_t* pixels = nullptr;
+	std::vector<uint32_t> pixels;
+	std::vector<Plane> planes;
+	std::vector<Sphere> spheres;
 } static data;
 
 LRESULT CALLBACK WindowEventCallback(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
@@ -158,24 +191,6 @@ void Update(float dt)
 {
 }
 
-struct Ray
-{
-	Vec3 origin = Vec3(0.0f);
-	Vec3 direction = Vec3(0.0f);
-	float t = 1e34f;
-
-	struct Payload
-	{
-		Vec4 color = Vec4(0.0f);
-	} payload;
-};
-
-struct Plane
-{
-	Vec3 normal = Vec3(0.0f);
-	Vec3 point = Vec3(0.0f);
-};
-
 void IntersectPlane(const Plane& plane, Ray& ray)
 {
 	// Plane: P * N + d = 0
@@ -191,16 +206,11 @@ void IntersectPlane(const Plane& plane, Ray& ray)
 		if (t < ray.t)
 		{
 			ray.t = t;
-			ray.payload.color = Vec4(1.0f, 1.0f, 0.0f, 1.0f);
+			ray.payload.object_type = ObjectType_Plane;
+			ray.payload.object_ptr = (void*)&plane;
 		}
 	}
 }
-
-struct Sphere
-{
-	Vec3 center = Vec3(0.0f);
-	float radius_sq = 0.0f;
-};
 
 void IntersectSphere(const Sphere& sphere, Ray& ray)
 {
@@ -250,16 +260,48 @@ void IntersectSphere(const Sphere& sphere, Ray& ray)
 	}
 
 	ray.t = t1;
-	ray.payload.color = Vec4(1.0f, 0.0f, 1.0f, 1.0f);
+	ray.payload.object_type = ObjectType_Sphere;
+	ray.payload.object_ptr = (void*)&sphere;
 }
 
-void TraceRay(Ray& ray)
+Vec3 GetObjectSurfaceNormalAtPoint(ObjectType type, void* ptr, const Vec3& point)
 {
-	Plane plane = { Vec3Normalize(Vec3(5.0f, 2.0f, 1.0f)), Vec3(0.0f, 0.0f, -5.0f)};
-	//IntersectPlane(plane, ray);
+	switch (type)
+	{
+	case ObjectType_Plane:
+	{
+		Plane* plane = reinterpret_cast<Plane*>(ptr);
+		return plane->normal;
+	} break;
+	case ObjectType_Sphere:
+	{
+		Sphere* sphere = reinterpret_cast<Sphere*>(ptr);
+		return Vec3Normalize(point - sphere->center);
+	} break;
+	}
+}
 
-	Sphere sphere = { Vec3(0.0f, 0.0f, -1.5f), 1.0f * 1.0f };
-	IntersectSphere(sphere, ray);
+Vec4 TraceRay(Ray& ray)
+{
+	for (auto& plane : data.planes)
+	{
+		IntersectPlane(plane, ray);
+	}
+	
+	for (auto& sphere : data.spheres)
+	{
+		IntersectSphere(sphere, ray);
+	}
+
+	if (!ray.payload.object_ptr)
+	{
+		return Vec4(1.0f, 0.0f, 1.0f, 1.0f);
+	}
+
+	Vec3 surface_point = ray.origin + ray.t * ray.direction;
+	Vec3 surface_normal = GetObjectSurfaceNormalAtPoint(ray.payload.object_type, ray.payload.object_ptr, surface_point);
+
+	return Vec4(abs(surface_normal.x), abs(surface_normal.y), abs(surface_normal.z), 1.0f);
 }
 
 void Render()
@@ -283,8 +325,8 @@ void Render()
 			const Vec3 pixel_pos = screen_top_left + u * (screen_top_right - screen_top_left) + v * (screen_bottom_left - screen_top_left);
 
 			Ray ray = { camera_pos, Vec3Normalize(pixel_pos - camera_pos) };
-			TraceRay(ray);
-			data.pixels[y * data.window_width + x] = Vec4ToUint(ray.payload.color);
+			Vec4 final_color = TraceRay(ray);
+			data.pixels[y * data.window_width + x] = Vec4ToUint(final_color);
 		}
 	}
 }
@@ -303,9 +345,9 @@ int main(int argc, char* argv[])
 	dx12_args.height = data.window_height;
 	DX12::Init(dx12_args);
 
-	data.num_pixels = data.window_width * data.window_height;
-	data.pixels = (uint32_t*)malloc(data.num_pixels * sizeof(uint32_t));
-	memset(data.pixels, 0, data.num_pixels * sizeof(uint32_t));
+	data.pixels.resize(data.window_width * data.window_height);
+	data.planes.emplace_back(Vec3(0.0f, -1.0f, 0.0f), Vec3(0.0f));
+	data.spheres.emplace_back(Vec3(0.0f, 0.0f, -2.0f), 1.0f * 1.0f);
 
 	std::chrono::high_resolution_clock::time_point curr_time = std::chrono::high_resolution_clock::now(),
 		last_time = std::chrono::high_resolution_clock::now();
@@ -320,13 +362,11 @@ int main(int argc, char* argv[])
 		Update(delta_time.count());
 		Render();
 
-		DX12::CopyToBackBuffer(data.pixels, data.num_pixels * sizeof(uint32_t));
+		DX12::CopyToBackBuffer(data.pixels.data(), data.pixels.size() * sizeof(uint32_t));
 		DX12::Present();
 
 		last_time = curr_time;
 	}
-
-	free(data.pixels);
 
 	DX12::Exit();
 
