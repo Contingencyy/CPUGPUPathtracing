@@ -70,7 +70,7 @@ struct Vec3
 		: x(_s), y(_s), z(_s) {}
 	Vec3(float _x, float _y, float _z)
 		: x(_x), y(_y), z(_z) {}
-
+	
 	union
 	{
 		struct

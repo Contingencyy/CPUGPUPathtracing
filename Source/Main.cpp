@@ -64,12 +64,28 @@ struct Plane
 {
 	Vec3 normal = Vec3(0.0f);
 	Vec3 point = Vec3(0.0f);
+
+	uint32_t mat_index = 0;
 };
 
 struct Sphere
 {
 	Vec3 center = Vec3(0.0f);
 	float radius_sq = 0.0f;
+
+	uint32_t mat_index = 0;
+};
+
+struct Material
+{
+	Vec4 albedo = Vec4(0.0f);
+};
+
+struct PointLight
+{
+	Vec3 position = Vec3(0.0f);
+	Vec3 color = Vec3(1.0f);
+	float intensity = 1.0f;
 };
 
 struct Data
@@ -86,6 +102,7 @@ struct Data
 	std::vector<uint32_t> pixels;
 	std::vector<Plane> planes;
 	std::vector<Sphere> spheres;
+	std::vector<Material> materials;
 } static data;
 
 LRESULT CALLBACK WindowEventCallback(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
@@ -215,7 +232,7 @@ void IntersectPlane(const Plane& plane, Ray& ray)
 void IntersectSphere(const Sphere& sphere, Ray& ray)
 {
 	float t0, t1;
-#if 0
+#if 1
 	Vec3 L = sphere.center - ray.origin;
 	float tca = Vec3Dot(L, ray.direction);
 
@@ -281,6 +298,36 @@ Vec3 GetObjectSurfaceNormalAtPoint(ObjectType type, void* ptr, const Vec3& point
 	}
 }
 
+Material& GetObjectSurfaceMaterial(ObjectType type, void* ptr)
+{
+	switch (type)
+	{
+	case ObjectType_Plane:
+	{
+		Plane* plane = reinterpret_cast<Plane*>(ptr);
+		return data.materials[plane->mat_index];
+	} break;
+	case ObjectType_Sphere:
+	{
+		Sphere* sphere = reinterpret_cast<Sphere*>(ptr);
+		return data.materials[sphere->mat_index];
+	} break;
+	}
+}
+
+Vec3 GetDirectIlluminationAtPoint(const PointLight& point_light, const Vec3& point, const Vec3& normal)
+{
+	float distance_to_light = Vec3Length(point_light.position - point);
+	Vec3 light_dir = Vec3Normalize(point_light.position - point);
+
+	float NoL = std::max(0.0f, Vec3Dot(normal, Vec3(-light_dir.x, -light_dir.y, -light_dir.z)));
+	float attenuation = 1.0f / (distance_to_light * distance_to_light);
+	Vec3 radiance = point_light.color * point_light.intensity * attenuation;
+	Vec3 indicent_light = radiance * NoL;
+
+	return indicent_light;
+}
+
 Vec4 TraceRay(Ray& ray)
 {
 	for (auto& plane : data.planes)
@@ -298,10 +345,20 @@ Vec4 TraceRay(Ray& ray)
 		return Vec4(1.0f, 0.0f, 1.0f, 1.0f);
 	}
 
+	Vec4 final_color(0.0f, 0.0f, 0.0f, 1.0f);
+
 	Vec3 surface_point = ray.origin + ray.t * ray.direction;
 	Vec3 surface_normal = GetObjectSurfaceNormalAtPoint(ray.payload.object_type, ray.payload.object_ptr, surface_point);
+	Material& surface_material = GetObjectSurfaceMaterial(ray.payload.object_type, ray.payload.object_ptr);
 
-	return Vec4(abs(surface_normal.x), abs(surface_normal.y), abs(surface_normal.z), 1.0f);
+	PointLight point_light = { Vec3(0.0f, 0.0f, 0.0f), Vec3(1.0f), 5.0f };
+	Vec3 illumination = GetDirectIlluminationAtPoint(point_light, surface_point, surface_normal);
+
+	final_color.x = surface_material.albedo.x * illumination.x;
+	final_color.y = surface_material.albedo.y * illumination.y;
+	final_color.z = surface_material.albedo.z * illumination.z;
+
+	return final_color;
 }
 
 void Render()
@@ -346,8 +403,10 @@ int main(int argc, char* argv[])
 	DX12::Init(dx12_args);
 
 	data.pixels.resize(data.window_width * data.window_height);
-	data.planes.emplace_back(Vec3(0.0f, -1.0f, 0.0f), Vec3(0.0f));
-	data.spheres.emplace_back(Vec3(0.0f, 0.0f, -2.0f), 1.0f * 1.0f);
+	data.materials.emplace_back(Vec4(0.5f, 0.35f, 0.25f, 1.0f));
+	data.materials.emplace_back(Vec4(0.1f, 0.25f, 0.8f, 1.0f));
+	data.planes.emplace_back(Vec3(0.0f, -1.0f, 0.0f), Vec3(0.0f, -1.0f, 0.0f), 0);
+	data.spheres.emplace_back(Vec3(0.0f, 0.0f, -2.0f), 1.0f * 1.0f, 1);
 
 	std::chrono::high_resolution_clock::time_point curr_time = std::chrono::high_resolution_clock::now(),
 		last_time = std::chrono::high_resolution_clock::now();
