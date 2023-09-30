@@ -41,6 +41,10 @@
 #include <chrono>
 #include <vector>
 
+#include "imgui/imgui.h"
+#include "imgui/imgui_impl_win32.h"
+#include "imgui/imgui_impl_dx12.h"
+
 enum ObjectType : uint8_t
 {
 	ObjectType_Plane,
@@ -105,8 +109,14 @@ struct Data
 	std::vector<Material> materials;
 } static data;
 
+extern LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 LRESULT CALLBACK WindowEventCallback(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
+	if (ImGui_ImplWin32_WndProcHandler(hWnd, message, wParam, lParam))
+	{
+		return true;
+	}
+
 	switch (message)
 	{
 	case WM_DESTROY:
@@ -417,12 +427,18 @@ int main(int argc, char* argv[])
 		curr_time = std::chrono::high_resolution_clock::now();
 		delta_time = curr_time - last_time;
 
+		ImGui_ImplWin32_NewFrame();
+		ImGui_ImplDX12_NewFrame();
+		ImGui::NewFrame();
+
 		PollEvents();
 		Update(delta_time.count());
 		Render();
 
 		DX12::CopyToBackBuffer(data.pixels.data(), data.pixels.size() * sizeof(uint32_t));
 		DX12::Present();
+
+		ImGui::EndFrame();
 
 		last_time = curr_time;
 	}

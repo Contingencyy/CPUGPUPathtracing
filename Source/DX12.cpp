@@ -42,6 +42,10 @@
 #include <stdexcept>
 #define DX_EXCEPT(msg) throw std::runtime_error(msg)
 
+#include "imgui/imgui.h"
+#include "imgui/imgui_impl_win32.h"
+#include "imgui/imgui_impl_dx12.h"
+
 inline void GetHRESULTMessage(HRESULT hr)
 {
 	char* msg = nullptr;
@@ -81,6 +85,9 @@ namespace DX12
 
 		ID3D12CommandAllocator* d3d_command_allocator = nullptr;
 		ID3D12GraphicsCommandList6* d3d_command_list = nullptr;
+
+		ID3D12DescriptorHeap* d3d_descriptor_heap_rtv = nullptr;
+		ID3D12DescriptorHeap* d3d_descriptor_heap_cbv_srv_uav = nullptr;
 
 		ID3D12Resource* upload_buffer = nullptr;
 		void* upload_buffer_ptr = nullptr;
@@ -184,11 +191,6 @@ namespace DX12
 		DX_CHECK(dxgi_factory->MakeWindowAssociation(args.hWnd, DXGI_MWA_NO_ALT_ENTER));
 		data.current_back_buffer_index = data.dxgi_swap_chain->GetCurrentBackBufferIndex();
 
-		for (size_t i = 0; i < DX_BACK_BUFFER_COUNT; ++i)
-		{
-			data.dxgi_swap_chain->GetBuffer(i, IID_PPV_ARGS(&data.back_buffers[i]));
-		}
-
 		// Create command allocator and command list
 		DX_CHECK(data.d3d_device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&data.d3d_command_allocator)));
 		DX_CHECK(data.d3d_device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, data.d3d_command_allocator, nullptr, IID_PPV_ARGS(&data.d3d_command_list)));
@@ -220,10 +222,56 @@ namespace DX12
 		DX_CHECK(data.d3d_device->CreateCommittedResource(&heap_props, D3D12_HEAP_FLAG_NONE,
 			&resource_desc, D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&data.upload_buffer)));
 		data.upload_buffer->Map(0, nullptr, &data.upload_buffer_ptr);
+
+		// Create descriptor heaps
+		D3D12_DESCRIPTOR_HEAP_DESC descriptor_heap_desc = {};
+		descriptor_heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
+		descriptor_heap_desc.NumDescriptors = DX_BACK_BUFFER_COUNT;
+		descriptor_heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
+		descriptor_heap_desc.NodeMask = 0;
+		DX_CHECK(data.d3d_device->CreateDescriptorHeap(&descriptor_heap_desc, IID_PPV_ARGS(&data.d3d_descriptor_heap_rtv)));
+
+		descriptor_heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+		descriptor_heap_desc.NumDescriptors = 1;
+		descriptor_heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+		DX_CHECK(data.d3d_device->CreateDescriptorHeap(&descriptor_heap_desc, IID_PPV_ARGS(&data.d3d_descriptor_heap_cbv_srv_uav)));
+
+		// Get back buffers and create render target views
+		for (size_t i = 0; i < DX_BACK_BUFFER_COUNT; ++i)
+		{
+			data.dxgi_swap_chain->GetBuffer(i, IID_PPV_ARGS(&data.back_buffers[i]));
+
+			D3D12_RENDER_TARGET_VIEW_DESC rtv_desc = {};
+			rtv_desc.Format = swap_chain_desc.Format;
+			rtv_desc.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2D;
+			rtv_desc.Texture2D.MipSlice = 0;
+			rtv_desc.Texture2D.PlaneSlice = 0;
+
+			uint32_t rtv_size = data.d3d_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
+			data.d3d_device->CreateRenderTargetView(data.back_buffers[i], &rtv_desc,
+				{ data.d3d_descriptor_heap_rtv->GetCPUDescriptorHandleForHeapStart().ptr + i * rtv_size });
+		}
+
+		// Initialize Dear ImGui
+		IMGUI_CHECKVERSION();
+		ImGui::CreateContext();
+		ImGui::StyleColorsDark();
+
+		ImGuiIO& io = ImGui::GetIO();
+		io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+		io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+
+		ImGui_ImplWin32_Init(args.hWnd);
+		ImGui_ImplDX12_Init(data.d3d_device, DX_BACK_BUFFER_COUNT, swap_chain_desc.Format, data.d3d_descriptor_heap_cbv_srv_uav,
+			data.d3d_descriptor_heap_cbv_srv_uav->GetCPUDescriptorHandleForHeapStart(), data.d3d_descriptor_heap_cbv_srv_uav->GetGPUDescriptorHandleForHeapStart());
 	}
 
 	void Exit()
 	{
+		ImGui_ImplDX12_Shutdown();
+		ImGui_ImplWin32_Shutdown();
+		ImGui::DestroyContext();
+
 		data.upload_buffer->Unmap(0, nullptr);
 		::CloseHandle(data.fence_event);
 	}
@@ -273,17 +321,35 @@ namespace DX12
 		dst_loc.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
 
 		data.d3d_command_list->CopyTextureRegion(&dst_loc, 0, 0, 0, &src_loc, nullptr);
-
-		D3D12_RESOURCE_BARRIER present_barrier = TransitionBarrier(back_buffer, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_PRESENT);
-		data.d3d_command_list->ResourceBarrier(1, &present_barrier);
-
-		data.d3d_command_list->Close();
-		ID3D12CommandList* const command_lists[] = { data.d3d_command_list };
-		data.d3d_command_queue->ExecuteCommandLists(1, command_lists);
 	}
 
 	void Present()
 	{
+		ID3D12Resource* back_buffer = data.back_buffers[data.current_back_buffer_index];
+
+		// Transition back buffer to render target state
+		D3D12_RESOURCE_BARRIER render_target_barrier = TransitionBarrier(back_buffer, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_RENDER_TARGET);
+		data.d3d_command_list->ResourceBarrier(1, &render_target_barrier);
+
+		// Render Dear ImGui
+		ImGui::Render();
+
+		uint32_t rtv_size = data.d3d_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
+		D3D12_CPU_DESCRIPTOR_HANDLE rtv_handle = { data.d3d_descriptor_heap_rtv->GetCPUDescriptorHandleForHeapStart().ptr + data.current_back_buffer_index * rtv_size };
+		data.d3d_command_list->OMSetRenderTargets(1, &rtv_handle, FALSE, nullptr);
+		data.d3d_command_list->SetDescriptorHeaps(1, &data.d3d_descriptor_heap_cbv_srv_uav);
+
+		ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), data.d3d_command_list);
+
+		// Transition back buffer to present state
+		D3D12_RESOURCE_BARRIER present_barrier = TransitionBarrier(back_buffer, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
+		data.d3d_command_list->ResourceBarrier(1, &present_barrier);
+
+		// Submit command list
+		data.d3d_command_list->Close();
+		ID3D12CommandList* const command_lists[] = { data.d3d_command_list };
+		data.d3d_command_queue->ExecuteCommandLists(1, command_lists);
+
 		// Present
 		uint32_t sync_interval = data.vsync_enabled ? 1 : 0;
 		uint32_t present_flags = data.tearing_supported && !data.vsync_enabled ? DXGI_PRESENT_ALLOW_TEARING : 0;
