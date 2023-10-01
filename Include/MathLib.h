@@ -6,44 +6,35 @@
 static constexpr float PI = 3.14159265f;
 static constexpr float INV_PI = 1.0f / PI;
 
-inline float Deg2Rad(float deg)
+inline constexpr float Deg2Rad(float deg)
 {
 	return deg * PI / 180.0f;
 }
 
-inline float Rad2Deg(float rad)
+inline constexpr float Rad2Deg(float rad)
 {
 	return rad * 180.0f / PI;
 }
 
-bool SolveQuadratic(const float a, const float b, const float c, float& x0, float& x1)
+bool SolveQuadratic(const float a, const float b, const float c, float& x0, float& x1);
+
+struct UVec2
 {
-	float discr = b * b - 4 * a * c;
+	UVec2() = default;
+	UVec2(uint32_t _s)
+		: x(_s), y(_s) {}
+	UVec2(uint32_t _x, uint32_t _y)
+		: x(_x), y(_y) {}
 
-	if (discr < 0.0f)
+	union
 	{
-		return false;
-	}
-	else if (discr == 0.0f)
-	{
-		x0 = x1 = -0.5f * b / a;
-	}
-	else
-	{
-		float q = (b > 0) ?
-			-0.5f * (b + std::sqrtf(discr)) :
-			-0.5f * (b - std::sqrtf(discr));
-		x0 = q / a;
-		x1 = c / q;
-	}
-
-	if (x0 > x1)
-	{
-		std::swap(x0, x1);
-	}
-
-	return true;
-}
+		struct
+		{
+			uint32_t x, y;
+		};
+		uint32_t xy[2] = { 0 };
+	};
+};
 
 struct Vec2
 {
@@ -83,6 +74,7 @@ struct Vec3
 
 inline Vec3 operator+(const Vec3& v0, const Vec3& v1) { return Vec3(v0.x + v1.x, v0.y + v1.y, v0.z + v1.z); }
 inline Vec3 operator-(const Vec3& v0, const Vec3& v1) { return Vec3(v0.x - v1.x, v0.y - v1.y, v0.z - v1.z); }
+inline Vec3 operator*(const Vec3& v0, const Vec3& v1) { return Vec3(v0.x * v1.x, v0.y * v1.y, v0.z * v1.z); }
 inline Vec3 operator*(const Vec3& v0, const float s) { return Vec3(v0.x * s, v0.y * s, v0.z * s); }
 inline Vec3 operator*(const float s, const Vec3& v0) { return Vec3(v0.x * s, v0.y * s, v0.z * s); }
 inline Vec3 operator/(const Vec3& v0, const float s) { return Vec3(v0.x / s, v0.y / s, v0.z / s); }
@@ -107,6 +99,11 @@ struct Vec4
 			float x, y, z, w;
 		};
 		float xyzw[4] = { 0 };
+		struct
+		{
+			Vec3 xyz;
+			float w;
+		};
 	};
 };
 

@@ -1,5 +1,7 @@
 #include "DX12.h"
 #include "MathLib.h"
+#include "Window.h"
+#include "Input.h"
 
 #define WIN32_LEAN_AND_MEAN
 #include <Windows.h>
@@ -39,16 +41,33 @@
 #include <stdint.h>
 #include <stdexcept>
 #include <chrono>
+#include <array>
 #include <vector>
+#include <unordered_map>
 
 #include "imgui/imgui.h"
 #include "imgui/imgui_impl_win32.h"
 #include "imgui/imgui_impl_dx12.h"
 
+/*
+	
+	TODOS:
+	- Shadow rays
+	- Reflection rays
+	- Refraction rays
+	- Anti-aliasing
+	- Multi-threading
+	- Beers law
+	- Motion blur
+	- Depth of field
+
+*/
+
 enum ObjectType : uint8_t
 {
 	ObjectType_Plane,
-	ObjectType_Sphere
+	ObjectType_Sphere,
+	ObjectType_NumTypes
 };
 
 struct Ray
@@ -61,6 +80,7 @@ struct Ray
 	{
 		ObjectType object_type;
 		void* object_ptr;
+		uint32_t mat_index;
 	} payload;
 };
 
@@ -92,130 +112,93 @@ struct PointLight
 	float intensity = 1.0f;
 };
 
+class Camera
+{
+public:
+	Camera() = default;
+	Camera(const Vec3& pos, const Vec3& view_dir, float fov, float aspect)
+		: m_pos(pos), m_view_dir(view_dir), m_fov(Deg2Rad(fov)), m_aspect(aspect)
+	{
+		UpdateScreenPlane();
+	}
+
+	void Update(float dt)
+	{
+		//Vec2 mouse_move = Input::GetMouseMoveRel();
+
+		m_pos.x -= Input::GetInputAxis1D(Input::KeyCode_A, Input::KeyCode_D) * dt * m_speed;
+		m_pos.y += Input::GetInputAxis1D(Input::KeyCode_Space, Input::KeyCode_LeftShift) * dt * m_speed;
+		m_pos.z -= Input::GetInputAxis1D(Input::KeyCode_W, Input::KeyCode_S) * dt * m_speed;
+
+		UpdateScreenPlane();
+	}
+
+	Ray GetRay(float u, float v)
+	{
+		Vec3 pixel_pos = m_screen_plane.top_left +
+			u * (m_screen_plane.top_right - m_screen_plane.top_left) +
+			v * (m_screen_plane.bottom_left - m_screen_plane.top_left);
+
+		return { .origin = m_pos, .direction = Vec3Normalize(pixel_pos - m_pos) };
+	}
+
+private:
+	void UpdateScreenPlane()
+	{
+		m_screen_plane.center = m_pos + m_fov * m_view_dir;
+		m_screen_plane.top_left = m_screen_plane.center + Vec3(-m_aspect, 1.0f, 0.0f);
+		m_screen_plane.top_right = m_screen_plane.center + Vec3(m_aspect, 1.0f, 0.0f);
+		m_screen_plane.bottom_left = m_screen_plane.center + Vec3(-m_aspect, -1.0f, 0.0f);
+	}
+
+private:
+	Vec3 m_pos = Vec3(0.0f);
+	Vec3 m_view_dir = Vec3(0.0f, 0.0f, -1.0f);
+
+	float m_fov = Deg2Rad(60.0f);
+	float m_aspect = 16.0f / 9.0f;
+
+	float m_pitch = 0.0f;
+	float m_yaw = 0.0f;
+	float m_speed = 2.0f;
+
+	struct ScreenPlane
+	{
+		Vec3 center = Vec3(0.0f);
+		Vec3 top_left = Vec3(0.0f);
+		Vec3 top_right = Vec3(0.0f);
+		Vec3 bottom_left = Vec3(0.0f);
+	} m_screen_plane;
+
+};
+
 struct Data
 {
-	// Window data
-	HWND hWnd = nullptr;
-	uint32_t window_width = 1280;
-	uint32_t window_height = 720;
-
-	// Application data
-	bool should_close = false;
-
 	// Render data
 	std::vector<uint32_t> pixels;
 	std::vector<Plane> planes;
 	std::vector<Sphere> spheres;
 	std::vector<Material> materials;
+
+	Camera camera;
 } static data;
-
-extern LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
-LRESULT CALLBACK WindowEventCallback(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
-{
-	if (ImGui_ImplWin32_WndProcHandler(hWnd, message, wParam, lParam))
-	{
-		return true;
-	}
-
-	switch (message)
-	{
-	case WM_DESTROY:
-	{
-		::PostQuitMessage(0);
-	} break;
-	default:
-	{
-		return ::DefWindowProcW(hWnd, message, wParam, lParam);
-	} break;
-	}
-
-	return 0;
-}
-
-struct CreateWindowArgs
-{
-	uint32_t width = 1280;
-	uint32_t height = 720;
-	const wchar_t* title = L"DefaultWindowTitle";
-};
-
-void CreateWindow(const CreateWindowArgs& args)
-{
-	// Register window class
-	HINSTANCE hInst = GetModuleHandle(NULL);
-	const wchar_t* windowClassName = L"DefaultWindowClass";
-
-	WNDCLASSEXW windowClass = {};
-	windowClass.cbSize = sizeof(WNDCLASSEX);
-	windowClass.style = CS_HREDRAW | CS_VREDRAW;
-	windowClass.lpfnWndProc = &WindowEventCallback;
-	windowClass.cbClsExtra = 0;
-	windowClass.cbWndExtra = 0;
-	windowClass.hInstance = hInst;
-	windowClass.hIcon = ::LoadIcon(hInst, "");
-	windowClass.hCursor = ::LoadCursor(NULL, IDC_ARROW);
-	windowClass.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
-	windowClass.lpszMenuName = NULL;
-	windowClass.lpszClassName = windowClassName;
-	windowClass.hIconSm = ::LoadIcon(hInst, NULL);
-
-	ATOM atom = ::RegisterClassExW(&windowClass);
-	if (atom == 0)
-	{
-		throw std::runtime_error("Failed to register window class");
-	}
-
-	// Create window
-	int screen_width = ::GetSystemMetrics(SM_CXSCREEN);
-	int screen_height = ::GetSystemMetrics(SM_CYSCREEN);
-
-	RECT window_rect = { 0, 0, static_cast<LONG>(args.width), static_cast<LONG>(args.height) };
-	::AdjustWindowRect(&window_rect, WS_OVERLAPPEDWINDOW, FALSE);
-
-	int window_width = window_rect.right - window_rect.left;
-	int window_height = window_rect.bottom - window_rect.top;
-
-	int window_x = std::max(0, (screen_width - window_width) / 2);
-	int window_y = std::max(0, (screen_height - window_height) / 2);
-
-	data.hWnd = ::CreateWindowExW(NULL, windowClassName, args.title, WS_OVERLAPPEDWINDOW,
-		window_x, window_y, window_width, window_height, NULL, NULL, hInst, nullptr);
-	
-	if (!data.hWnd)
-	{
-		throw std::runtime_error("Failed to create window");
-	}
-
-	RECT client_rect = {};
-	::GetClientRect(data.hWnd, &client_rect);
-	data.window_width = client_rect.right - client_rect.left;
-	data.window_height = client_rect.bottom - client_rect.top;
-	::ShowWindow(data.hWnd, 1);
-}
-
-void DestroyWindow()
-{
-	DestroyWindow(data.hWnd);
-}
-
-void PollEvents()
-{
-	MSG msg = {};
-	while (::PeekMessage(&msg, NULL, 0, 0, PM_REMOVE) != NULL)
-	{
-		if (msg.message == WM_QUIT)
-		{
-			data.should_close = true;
-			break;
-		}
-
-		::TranslateMessage(&msg);
-		::DispatchMessage(&msg);
-	}
-}
 
 void Update(float dt)
 {
+	Input::UpdateMousePosition();
+	if (!ImGui::GetIO().WantCaptureMouse)
+	{
+		if (Input::IsKeyPressed(Input::KeyCode_LeftMouse))
+		{
+			Window::SetMouseCapture(true);
+		}
+	}
+	if (Input::IsKeyPressed(Input::KeyCode_RightMouse))
+	{
+		Window::SetMouseCapture(false);
+	}
+
+	data.camera.Update(dt);
 }
 
 void IntersectPlane(const Plane& plane, Ray& ray)
@@ -235,6 +218,7 @@ void IntersectPlane(const Plane& plane, Ray& ray)
 			ray.t = t;
 			ray.payload.object_type = ObjectType_Plane;
 			ray.payload.object_ptr = (void*)&plane;
+			ray.payload.mat_index = plane.mat_index;
 		}
 	}
 }
@@ -289,6 +273,7 @@ void IntersectSphere(const Sphere& sphere, Ray& ray)
 	ray.t = t1;
 	ray.payload.object_type = ObjectType_Sphere;
 	ray.payload.object_ptr = (void*)&sphere;
+	ray.payload.mat_index = sphere.mat_index;
 }
 
 Vec3 GetObjectSurfaceNormalAtPoint(ObjectType type, void* ptr, const Vec3& point)
@@ -308,29 +293,12 @@ Vec3 GetObjectSurfaceNormalAtPoint(ObjectType type, void* ptr, const Vec3& point
 	}
 }
 
-Material& GetObjectSurfaceMaterial(ObjectType type, void* ptr)
-{
-	switch (type)
-	{
-	case ObjectType_Plane:
-	{
-		Plane* plane = reinterpret_cast<Plane*>(ptr);
-		return data.materials[plane->mat_index];
-	} break;
-	case ObjectType_Sphere:
-	{
-		Sphere* sphere = reinterpret_cast<Sphere*>(ptr);
-		return data.materials[sphere->mat_index];
-	} break;
-	}
-}
-
 Vec3 GetDirectIlluminationAtPoint(const PointLight& point_light, const Vec3& point, const Vec3& normal)
 {
 	float distance_to_light = Vec3Length(point_light.position - point);
-	Vec3 light_dir = Vec3Normalize(point_light.position - point);
+	Vec3 light_dir = Vec3Normalize(point - point_light.position);
 
-	float NoL = std::max(0.0f, Vec3Dot(normal, Vec3(-light_dir.x, -light_dir.y, -light_dir.z)));
+	float NoL = std::max(0.0f, Vec3Dot(normal, Vec3(light_dir.x, light_dir.y, light_dir.z)));
 	float attenuation = 1.0f / (distance_to_light * distance_to_light);
 	Vec3 radiance = point_light.color * point_light.intensity * attenuation;
 	Vec3 indicent_light = radiance * NoL;
@@ -359,60 +327,54 @@ Vec4 TraceRay(Ray& ray)
 
 	Vec3 surface_point = ray.origin + ray.t * ray.direction;
 	Vec3 surface_normal = GetObjectSurfaceNormalAtPoint(ray.payload.object_type, ray.payload.object_ptr, surface_point);
-	Material& surface_material = GetObjectSurfaceMaterial(ray.payload.object_type, ray.payload.object_ptr);
+	Material& surface_material = data.materials[ray.payload.mat_index];
 
-	PointLight point_light = { Vec3(0.0f, 0.0f, 0.0f), Vec3(1.0f), 5.0f };
+	PointLight point_light = { Vec3(0.0f, 0.0f, 0.0f), Vec3(1.0f), 10.0f };
 	Vec3 illumination = GetDirectIlluminationAtPoint(point_light, surface_point, surface_normal);
 
-	final_color.x = surface_material.albedo.x * illumination.x;
-	final_color.y = surface_material.albedo.y * illumination.y;
-	final_color.z = surface_material.albedo.z * illumination.z;
-
+	// Lambertian diffuse
+	final_color.xyz = surface_material.albedo.xyz * INV_PI * illumination;
 	return final_color;
 }
 
 void Render()
 {
-	float aspect = (float)data.window_width / data.window_height;
-	float fov = 60.0f;
+	UVec2 framebuffer_size = Window::GetFramebufferSize();
 
-	Vec3 camera_pos(0.0f, 0.0f, 0.0f);
-	Vec3 camera_direction(0.0f, 0.0f, -1.0f);
-	Vec3 screen_center = camera_pos + Deg2Rad(fov) * camera_direction;
-	Vec3 screen_top_left = screen_center + Vec3(-aspect, 1.0f, 0.0f);
-	Vec3 screen_top_right = screen_center + Vec3(aspect, 1.0f, 0.0f);
-	Vec3 screen_bottom_left = screen_center + Vec3(-aspect, -1.0f, 0.0f);
-
-	for (uint32_t y = 0; y < data.window_height; ++y)
+	for (uint32_t y = 0; y < framebuffer_size.y; ++y)
 	{
-		for (uint32_t x = 0; x < data.window_width; ++x)
+		for (uint32_t x = 0; x < framebuffer_size.x; ++x)
 		{
-			const float u = (float)x * (1.0f / data.window_width);
-			const float v = (float)y * (1.0f / data.window_height);
-			const Vec3 pixel_pos = screen_top_left + u * (screen_top_right - screen_top_left) + v * (screen_bottom_left - screen_top_left);
+			const float u = (float)x * (1.0f / framebuffer_size.x);
+			const float v = (float)y * (1.0f / framebuffer_size.y);
 
-			Ray ray = { camera_pos, Vec3Normalize(pixel_pos - camera_pos) };
+			Ray ray = data.camera.GetRay(u, v);
 			Vec4 final_color = TraceRay(ray);
-			data.pixels[y * data.window_width + x] = Vec4ToUint(final_color);
+
+			data.pixels[y * framebuffer_size.x + x] = Vec4ToUint(final_color);
 		}
 	}
 }
 
 int main(int argc, char* argv[])
 {
-	CreateWindowArgs window_args = {};
+	Window::CreateWindowArgs window_args = {};
 	window_args.width = 1280;
 	window_args.height = 720;
 	window_args.title = L"Graphics Advanced Masterclass";
-	CreateWindow(window_args);
+	Window::Create(window_args);
+
+	UVec2 framebuffer_size = Window::GetFramebufferSize();
 
 	DX12::DX12InitArgs dx12_args = {};
-	dx12_args.hWnd = data.hWnd;
-	dx12_args.width = data.window_width;
-	dx12_args.height = data.window_height;
+	dx12_args.hWnd = Window::GetHandle();
+	dx12_args.width = framebuffer_size.x;
+	dx12_args.height = framebuffer_size.y;
 	DX12::Init(dx12_args);
 
-	data.pixels.resize(data.window_width * data.window_height);
+	data.camera = Camera(Vec3(0.0f), Vec3(0.0f, 0.0f, -1.0f), 60.0f, (float)framebuffer_size.x / framebuffer_size.y);
+
+	data.pixels.resize(framebuffer_size.x * framebuffer_size.y);
 	data.materials.emplace_back(Vec4(0.5f, 0.35f, 0.25f, 1.0f));
 	data.materials.emplace_back(Vec4(0.1f, 0.25f, 0.8f, 1.0f));
 	data.planes.emplace_back(Vec3(0.0f, -1.0f, 0.0f), Vec3(0.0f, -1.0f, 0.0f), 0);
@@ -422,7 +384,7 @@ int main(int argc, char* argv[])
 		last_time = std::chrono::high_resolution_clock::now();
 	std::chrono::duration<float> delta_time = std::chrono::duration<float>(0.0f);
 
-	while (!data.should_close)
+	while (!Window::ShouldClose())
 	{
 		curr_time = std::chrono::high_resolution_clock::now();
 		delta_time = curr_time - last_time;
@@ -431,9 +393,13 @@ int main(int argc, char* argv[])
 		ImGui_ImplDX12_NewFrame();
 		ImGui::NewFrame();
 
-		PollEvents();
+		Window::PollEvents();
 		Update(delta_time.count());
 		Render();
+
+		ImGui::Begin("General");
+		ImGui::Text("Frame time (CPU): %.3f ms", delta_time.count() * 1000.0f);
+		ImGui::End();
 
 		DX12::CopyToBackBuffer(data.pixels.data(), data.pixels.size() * sizeof(uint32_t));
 		DX12::Present();
@@ -445,7 +411,7 @@ int main(int argc, char* argv[])
 
 	DX12::Exit();
 
-	DestroyWindow();
+	Window::Destroy();
 
 	return 0;
 }

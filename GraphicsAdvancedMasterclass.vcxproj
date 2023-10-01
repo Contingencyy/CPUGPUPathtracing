@@ -137,7 +137,10 @@
     <ClCompile Include="Extern\imgui\imgui_tables.cpp" />
     <ClCompile Include="Extern\imgui\imgui_widgets.cpp" />
     <ClCompile Include="Source\DX12.cpp" />
+    <ClCompile Include="Source\Input.cpp" />
     <ClCompile Include="Source\Main.cpp" />
+    <ClCompile Include="Source\MathLib.cpp" />
+    <ClCompile Include="Source\Window.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Extern\imgui\imgui.h" />
@@ -145,7 +148,9 @@
     <ClInclude Include="Extern\imgui\imgui_impl_win32.h" />
     <ClInclude Include="Extern\imgui\imgui_internal.h" />
     <ClInclude Include="Include\DX12.h" />
+    <ClInclude Include="Include\Input.h" />
     <ClInclude Include="Include\MathLib.h" />
+    <ClInclude Include="Include\Window.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
