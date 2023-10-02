@@ -52,7 +52,6 @@
 /*
 	
 	TODOS:
-	- Shadow rays
 	- Reflection rays
 	- Refraction rays
 	- Anti-aliasing
@@ -172,6 +171,22 @@ private:
 
 };
 
+enum DebugRenderView
+{
+	DebugRenderView_None,
+	DebugRenderView_SurfaceNormal,
+	DebugRenderView_SurfaceAlbedo,
+	DebugRenderView_DirectIllumination,
+	DebugRenderView_Depth,
+	DebugRenderView_ViewDirection,
+	DebugRenderView_NumViews
+};
+
+std::vector<const char*> debug_render_view_names =
+{
+	{ "None", "Surface normal", "Surface albedo", "Direct illumination", "Depth", "View direction"}
+};
+
 struct Data
 {
 	// Render data
@@ -182,6 +197,8 @@ struct Data
 	std::vector<PointLight> point_lights;
 
 	Camera camera;
+
+	DebugRenderView debug_view = DebugRenderView_None;
 } static data;
 
 void Update(float dt)
@@ -370,8 +387,34 @@ Vec4 TraceRay(Ray& ray)
 
 	Vec3 illumination = GetDirectIlluminationAtPoint(surface_point, surface_normal);
 
-	// Lambertian diffuse
-	final_color.xyz = surface_material.albedo.xyz * INV_PI * illumination;
+	switch (data.debug_view)
+	{
+	case DebugRenderView_None:
+	{
+		// Lambertian diffuse
+		final_color.xyz = surface_material.albedo.xyz * INV_PI * illumination;
+	} break;
+	case DebugRenderView_SurfaceNormal:
+	{
+		final_color.xyz = (surface_normal + 1.0f) * 0.5f;
+	} break;
+	case DebugRenderView_SurfaceAlbedo:
+	{
+		final_color.xyz = surface_material.albedo.xyz;
+	} break;
+	case DebugRenderView_DirectIllumination:
+	{
+		final_color.xyz = illumination;
+	} break;
+	case DebugRenderView_Depth:
+	{
+		final_color.xyz = 0.1f * ray.t;
+	} break;
+	case DebugRenderView_ViewDirection:
+	{
+		final_color.xyz = (ray.direction + 1.0f) * 0.5f;
+	} break;
+	}
 	return final_color;
 }
 
@@ -438,6 +481,25 @@ int main(int argc, char* argv[])
 
 		ImGui::Begin("General");
 		ImGui::Text("Frame time (CPU): %.3f ms", delta_time.count() * 1000.0f);
+		if (ImGui::BeginCombo("Debug render view", debug_render_view_names[data.debug_view]))
+		{
+			for (size_t i = 0; i < DebugRenderView_NumViews; ++i)
+			{
+				bool is_selected = i == data.debug_view;
+
+				if (ImGui::Selectable(debug_render_view_names[i], is_selected))
+				{
+					data.debug_view = (DebugRenderView)i;
+				}
+
+				if (is_selected)
+				{
+					ImGui::SetItemDefaultFocus();
+				}
+			}
+
+			ImGui::EndCombo();
+		}
 		ImGui::End();
 
 		DX12::CopyToBackBuffer(data.pixels.data(), data.pixels.size() * sizeof(uint32_t));
