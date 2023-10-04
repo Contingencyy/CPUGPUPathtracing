@@ -140,6 +140,7 @@
     <ClCompile Include="Source\Input.cpp" />
     <ClCompile Include="Source\Main.cpp" />
     <ClCompile Include="Source\MathLib.cpp" />
+    <ClCompile Include="Source\ThreadPool.cpp" />
     <ClCompile Include="Source\Window.cpp" />
   </ItemGroup>
   <ItemGroup>
@@ -150,6 +151,7 @@
     <ClInclude Include="Include\DX12.h" />
     <ClInclude Include="Include\Input.h" />
     <ClInclude Include="Include\MathLib.h" />
+    <ClInclude Include="Include\ThreadPool.h" />
     <ClInclude Include="Include\Window.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

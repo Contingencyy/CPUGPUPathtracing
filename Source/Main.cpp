@@ -2,6 +2,7 @@
 #include "MathLib.h"
 #include "Window.h"
 #include "Input.h"
+#include "ThreadPool.h"
 
 #define WIN32_LEAN_AND_MEAN
 #include <Windows.h>
@@ -422,7 +423,7 @@ void Render()
 {
 	UVec2 framebuffer_size = Window::GetFramebufferSize();
 
-	for (uint32_t y = 0; y < framebuffer_size.y; ++y)
+	/*for (uint32_t y = 0; y < framebuffer_size.y; ++y)
 	{
 		for (uint32_t x = 0; x < framebuffer_size.x; ++x)
 		{
@@ -434,7 +435,35 @@ void Render()
 
 			data.pixels[y * framebuffer_size.x + x] = Vec4ToUint(final_color);
 		}
-	}
+	}*/
+
+	UVec2 job_size(16, 16);
+	size_t pixel_count = framebuffer_size.x * framebuffer_size.y;
+	uint32_t num_jobs = pixel_count / (job_size.y * job_size.x);
+
+	Vec2 inv_framebuffer_size(1.0f / framebuffer_size.x, 1.0f / framebuffer_size.y);
+
+	auto trace_ray_thread_job = [&job_size, &framebuffer_size, &inv_framebuffer_size](ThreadPool::JobDispatchArgs args) {
+		uint32_t first_x = (args.job_index * job_size.x) % framebuffer_size.x;
+		uint32_t first_y = ((args.job_index * job_size.x) / framebuffer_size.x) * job_size.y;
+
+		for (uint32_t y = first_y; y < first_y + job_size.y; ++y)
+		{
+			for (uint32_t x = first_x; x < first_x + job_size.x; ++x)
+			{
+				const float u = (float)x * inv_framebuffer_size.x;
+				const float v = (float)y * inv_framebuffer_size.y;
+				
+				Ray ray = data.camera.GetRay(u, v);
+				Vec4 final_color = TraceRay(ray);
+
+				data.pixels[y * framebuffer_size.x + x] = Vec4ToUint(final_color);
+			}
+		}
+	};
+
+	ThreadPool::Dispatch(num_jobs, 16, trace_ray_thread_job);
+	ThreadPool::WaitAll();
 }
 
 int main(int argc, char* argv[])
@@ -452,6 +481,8 @@ int main(int argc, char* argv[])
 	dx12_args.width = framebuffer_size.x;
 	dx12_args.height = framebuffer_size.y;
 	DX12::Init(dx12_args);
+
+	ThreadPool::Init();
 
 	data.camera = Camera(Vec3(0.0f), Vec3(0.0f, 0.0f, -1.0f), 60.0f, (float)framebuffer_size.x / framebuffer_size.y);
 
@@ -510,8 +541,8 @@ int main(int argc, char* argv[])
 		last_time = curr_time;
 	}
 
+	ThreadPool::Exit();
 	DX12::Exit();
-
 	Window::Destroy();
 
 	return 0;
