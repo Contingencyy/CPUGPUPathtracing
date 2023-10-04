@@ -103,6 +103,7 @@ struct Sphere
 struct Material
 {
 	Vec4 albedo = Vec4(0.0f);
+	float specular = 0.0f;
 };
 
 struct PointLight
@@ -175,6 +176,8 @@ private:
 enum DebugRenderView
 {
 	DebugRenderView_None,
+	DebugRenderView_Diffuse,
+	DebugRenderView_Specular,
 	DebugRenderView_SurfaceNormal,
 	DebugRenderView_SurfaceAlbedo,
 	DebugRenderView_DirectIllumination,
@@ -185,7 +188,7 @@ enum DebugRenderView
 
 std::vector<const char*> debug_render_view_names =
 {
-	{ "None", "Surface normal", "Surface albedo", "Direct illumination", "Depth", "View direction"}
+	{ "None", "Diffuse", "Specular", "Surface normal", "Surface albedo", "Direct illumination", "Depth", "View direction" }
 };
 
 struct Data
@@ -346,7 +349,7 @@ Vec3 GetDirectIlluminationAtPoint(const Vec3& point, const Vec3& normal)
 		float distance_to_light = Vec3Length(point_light.position - point);
 		Vec3 light_dir = Vec3Normalize(point_light.position - point);
 
-		Ray shadow_ray = { .origin = point + RAY_REFLECT_NUDGE_MULTIPLIER * light_dir, .direction = light_dir, .t = distance_to_light };
+		Ray shadow_ray = { .origin = point + light_dir * RAY_REFLECT_NUDGE_MULTIPLIER, .direction = light_dir, .t = distance_to_light };
 		bool occluded = TraceShadowRay(shadow_ray);
 
 		if (occluded)
@@ -363,8 +366,18 @@ Vec3 GetDirectIlluminationAtPoint(const Vec3& point, const Vec3& normal)
 	}
 }
 
-Vec4 TraceRay(Ray& ray)
+Vec3 Reflect(const Vec3& dir, const Vec3& normal)
 {
+	return dir - 2.0f * normal * Vec3Dot(dir, normal);
+}
+
+Vec4 TraceRay(Ray& ray, uint8_t depth)
+{
+	if (depth == 2)
+	{
+		return Vec4(0.0f);
+	}
+
 	for (const auto& plane : data.planes)
 	{
 		IntersectPlane(plane, ray);
@@ -377,7 +390,7 @@ Vec4 TraceRay(Ray& ray)
 
 	if (!ray.payload.object_ptr)
 	{
-		return Vec4(1.0f, 0.0f, 1.0f, 1.0f);
+		return Vec4(0.5f, 0.8f, 1.0f, 1.0f);
 	}
 
 	Vec4 final_color(0.0f, 0.0f, 0.0f, 1.0f);
@@ -387,13 +400,30 @@ Vec4 TraceRay(Ray& ray)
 	Material& surface_material = data.materials[ray.payload.mat_index];
 
 	Vec3 illumination = GetDirectIlluminationAtPoint(surface_point, surface_normal);
+	Vec3 diffuse = surface_material.albedo.xyz * INV_PI * illumination * (1.0f - surface_material.specular);
+	Vec3 specular(0.0f);
+
+	if (surface_material.specular > 0.0f)
+	{
+		Vec3 reflect_dir = Reflect(ray.direction, surface_normal);
+		Ray reflect_ray = { .origin = surface_point + reflect_dir * RAY_REFLECT_NUDGE_MULTIPLIER, .direction = reflect_dir };
+		Vec4 reflect_color = TraceRay(reflect_ray, ++depth);
+		specular = final_color.xyz + surface_material.albedo.xyz * reflect_color.xyz * surface_material.specular;
+	}
 
 	switch (data.debug_view)
 	{
 	case DebugRenderView_None:
 	{
-		// Lambertian diffuse
-		final_color.xyz = surface_material.albedo.xyz * INV_PI * illumination;
+		final_color.xyz = diffuse + specular;
+	} break;
+	case DebugRenderView_Diffuse:
+	{
+		final_color.xyz = diffuse;
+	} break;
+	case DebugRenderView_Specular:
+	{
+		final_color.xyz = specular;
 	} break;
 	case DebugRenderView_SurfaceNormal:
 	{
@@ -422,25 +452,7 @@ Vec4 TraceRay(Ray& ray)
 void Render()
 {
 	UVec2 framebuffer_size = Window::GetFramebufferSize();
-
-	/*for (uint32_t y = 0; y < framebuffer_size.y; ++y)
-	{
-		for (uint32_t x = 0; x < framebuffer_size.x; ++x)
-		{
-			const float u = (float)x * (1.0f / framebuffer_size.x);
-			const float v = (float)y * (1.0f / framebuffer_size.y);
-
-			Ray ray = data.camera.GetRay(u, v);
-			Vec4 final_color = TraceRay(ray);
-
-			data.pixels[y * framebuffer_size.x + x] = Vec4ToUint(final_color);
-		}
-	}*/
-
 	UVec2 job_size(16, 16);
-	size_t pixel_count = framebuffer_size.x * framebuffer_size.y;
-	uint32_t num_jobs = pixel_count / (job_size.y * job_size.x);
-
 	Vec2 inv_framebuffer_size(1.0f / framebuffer_size.x, 1.0f / framebuffer_size.y);
 
 	auto trace_ray_thread_job = [&job_size, &framebuffer_size, &inv_framebuffer_size](ThreadPool::JobDispatchArgs args) {
@@ -455,12 +467,15 @@ void Render()
 				const float v = (float)y * inv_framebuffer_size.y;
 				
 				Ray ray = data.camera.GetRay(u, v);
-				Vec4 final_color = TraceRay(ray);
+				Vec4 final_color = TraceRay(ray, 0);
 
 				data.pixels[y * framebuffer_size.x + x] = Vec4ToUint(final_color);
 			}
 		}
 	};
+
+	size_t pixel_count = framebuffer_size.x * framebuffer_size.y;
+	uint32_t num_jobs = pixel_count / (job_size.y * job_size.x);
 
 	ThreadPool::Dispatch(num_jobs, 16, trace_ray_thread_job);
 	ThreadPool::WaitAll();
@@ -487,11 +502,11 @@ int main(int argc, char* argv[])
 	data.camera = Camera(Vec3(0.0f), Vec3(0.0f, 0.0f, -1.0f), 60.0f, (float)framebuffer_size.x / framebuffer_size.y);
 
 	data.pixels.resize(framebuffer_size.x * framebuffer_size.y);
-	data.materials.emplace_back(Vec4(0.5f, 0.35f, 0.25f, 1.0f));
-	data.materials.emplace_back(Vec4(0.1f, 0.25f, 0.8f, 1.0f));
+	data.materials.emplace_back(Vec4(0.5f, 0.35f, 0.25f, 1.0f), 0.5f);
+	data.materials.emplace_back(Vec4(0.1f, 0.25f, 0.8f, 1.0f), 0.5f);
 	data.planes.emplace_back(Vec3(0.0f, 1.0f, 0.0f), Vec3(0.0f, -2.0f, 0.0f), 0);
 	data.spheres.emplace_back(Vec3(0.0f, 0.0f, -2.0f), 1.0f * 1.0f, 1);
-	data.point_lights.emplace_back(Vec3(0.0f, 4.0f, 0.0f), Vec3(1.0f), 100.0f);
+	data.point_lights.emplace_back(Vec3(0.0f, 2.0f, 2.0f), Vec3(1.0f), 100.0f);
 
 	std::chrono::high_resolution_clock::time_point curr_time = std::chrono::high_resolution_clock::now(),
 		last_time = std::chrono::high_resolution_clock::now();
