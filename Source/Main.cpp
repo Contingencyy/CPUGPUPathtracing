@@ -60,8 +60,6 @@
 		- Distance attenuation
 		- Shading model (N dot L for diffuse, or lambert)
 	- Pure specular reflections with recursion
-
-	Todo:
 	- Dielectrics with fresnel with recursion
 	- Beer's Law
 
@@ -583,8 +581,8 @@ int main(int argc, char* argv[])
 	data.camera = Camera(Vec3(0.0f), Vec3(0.0f, 0.0f, -1.0f), 60.0f, (float)framebuffer_size.x / framebuffer_size.y);
 
 	data.pixels.resize(framebuffer_size.x * framebuffer_size.y);
-	data.materials.emplace_back(Vec4(0.8f, 0.8f, 0.8f, 1.0f), 0.5f, 0.0f, Vec3(0.0f));
-	data.materials.emplace_back(Vec4(0.3f, 0.2f, 0.2f, 1.0f), 0.0f, 0.8f, Vec3(0.0f, 0.9f, 0.9f));
+	data.materials.emplace_back(Vec4(0.3f, 0.3f, 0.3f, 1.0f), 0.5f, 0.0f, Vec3(0.0f));
+	data.materials.emplace_back(Vec4(0.5f, 0.1f, 0.15f, 1.0f), 0.0f, 0.8f, Vec3(0.0f, 0.9f, 0.9f));
 	data.planes.emplace_back(Vec3(0.0f, 1.0f, 0.0f), Vec3(0.0f, -2.0f, 0.0f), 0);
 	data.spheres.emplace_back(Vec3(-2.0f, 0.0f, -2.0f), 1.0f * 1.0f, 1);
 	data.spheres.emplace_back(Vec3(0.0f, 0.0f, -2.0f), 0.5f * 0.5f, 1);
