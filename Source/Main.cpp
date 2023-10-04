@@ -45,6 +45,7 @@
 #include <array>
 #include <vector>
 #include <unordered_map>
+#include <algorithm>
 
 #include "imgui/imgui.h"
 #include "imgui/imgui_impl_win32.h"
@@ -52,16 +53,22 @@
 
 /*
 	
-	TODOS:
-	- Reflection rays
-	- Refraction rays
-	- Anti-aliasing
-	- Multi-threading
-	- Beers law
-	- Motion blur
-	- Depth of field
+	Whitted-style raytracer:
+	Done:
+	- Direct illumination of multiple light sources, takes into account:
+		- Visibility
+		- Distance attenuation
+		- Shading model (N dot L for diffuse, or lambert)
+	- Pure specular reflections with recursion
+
+	Todo:
+	- Dielectrics with fresnel with recursion
+	- Beer's Law
 
 */
+
+static constexpr uint8_t MAX_RAY_DEPTH = 5;
+static constexpr float RAY_REFLECT_NUDGE_MULTIPLIER = 0.001f;
 
 enum ObjectType : uint8_t
 {
@@ -75,6 +82,7 @@ struct Ray
 	Vec3 origin = Vec3(0.0f);
 	Vec3 direction = Vec3(0.0f);
 	float t = 1e34f;
+	bool inside = false;
 
 	struct Payload
 	{
@@ -104,6 +112,8 @@ struct Material
 {
 	Vec4 albedo = Vec4(0.0f);
 	float specular = 0.0f;
+	float refractivity = 0.0f;
+	Vec3 absorption = Vec3(0.0f);
 };
 
 struct PointLight
@@ -178,6 +188,7 @@ enum DebugRenderView
 	DebugRenderView_None,
 	DebugRenderView_Diffuse,
 	DebugRenderView_Specular,
+	DebugRenderView_Refract,
 	DebugRenderView_SurfaceNormal,
 	DebugRenderView_SurfaceAlbedo,
 	DebugRenderView_DirectIllumination,
@@ -188,7 +199,7 @@ enum DebugRenderView
 
 std::vector<const char*> debug_render_view_names =
 {
-	{ "None", "Diffuse", "Specular", "Surface normal", "Surface albedo", "Direct illumination", "Depth", "View direction" }
+	{ "None", "Diffuse", "Specular", "Refract", "Surface normal", "Surface albedo", "Direct illumination", "Depth", "View direction" }
 };
 
 struct Data
@@ -256,6 +267,7 @@ void IntersectSphere(const Sphere& sphere, Ray& ray)
 {
 	float t0, t1;
 #if 1
+	// Seems to be faster than solving the quadratic
 	Vec3 L = sphere.center - ray.origin;
 	float tca = Vec3Dot(L, ray.direction);
 
@@ -340,8 +352,6 @@ bool TraceShadowRay(Ray& shadow_ray)
 	return shadow_ray.payload.object_ptr != nullptr;
 }
 
-static constexpr float RAY_REFLECT_NUDGE_MULTIPLIER = 0.001f;
-
 Vec3 GetDirectIlluminationAtPoint(const Vec3& point, const Vec3& normal)
 {
 	for (const auto& point_light : data.point_lights)
@@ -371,12 +381,23 @@ Vec3 Reflect(const Vec3& dir, const Vec3& normal)
 	return dir - 2.0f * normal * Vec3Dot(dir, normal);
 }
 
+float Fresnel(float in, float out, float ior_outside, float ior_inside)
+{
+	float sPolarized = (ior_outside * in - ior_inside * out) /
+		(ior_outside * in + ior_inside * out);
+	float pPolarized = (ior_outside * out - ior_inside * in) /
+		(ior_outside * out + ior_inside * in);
+	return 0.5f * ((sPolarized * sPolarized) + (pPolarized * pPolarized));
+}
+
 Vec4 TraceRay(Ray& ray, uint8_t depth)
 {
-	if (depth == 2)
+	if (depth == MAX_RAY_DEPTH)
 	{
 		return Vec4(0.0f);
 	}
+
+	uint8_t next_depth = depth + 1;
 
 	for (const auto& plane : data.planes)
 	{
@@ -400,52 +421,112 @@ Vec4 TraceRay(Ray& ray, uint8_t depth)
 	Material& surface_material = data.materials[ray.payload.mat_index];
 
 	Vec3 illumination = GetDirectIlluminationAtPoint(surface_point, surface_normal);
-	Vec3 diffuse = surface_material.albedo.xyz * INV_PI * illumination * (1.0f - surface_material.specular);
+	Vec3 ambient(0.2f);
+
+	Vec3 diffuse = surface_material.albedo.xyz * INV_PI * (illumination + ambient) * (1.0f - surface_material.specular - surface_material.refractivity);
 	Vec3 specular(0.0f);
+	Vec3 refract(0.0f);
 
 	if (surface_material.specular > 0.0f)
 	{
 		Vec3 reflect_dir = Reflect(ray.direction, surface_normal);
 		Ray reflect_ray = { .origin = surface_point + reflect_dir * RAY_REFLECT_NUDGE_MULTIPLIER, .direction = reflect_dir };
-		Vec4 reflect_color = TraceRay(reflect_ray, ++depth);
-		specular = final_color.xyz + surface_material.albedo.xyz * reflect_color.xyz * surface_material.specular;
+		Vec4 reflect_color = TraceRay(reflect_ray, next_depth);
+		specular += surface_material.albedo.xyz * reflect_color.xyz * surface_material.specular;
 	}
 
-	switch (data.debug_view)
+	if (surface_material.refractivity > 0.0f)
 	{
-	case DebugRenderView_None:
-	{
-		final_color.xyz = diffuse + specular;
-	} break;
-	case DebugRenderView_Diffuse:
-	{
-		final_color.xyz = diffuse;
-	} break;
-	case DebugRenderView_Specular:
-	{
-		final_color.xyz = specular;
-	} break;
-	case DebugRenderView_SurfaceNormal:
-	{
-		final_color.xyz = (surface_normal + 1.0f) * 0.5f;
-	} break;
-	case DebugRenderView_SurfaceAlbedo:
-	{
-		final_color.xyz = surface_material.albedo.xyz;
-	} break;
-	case DebugRenderView_DirectIllumination:
-	{
-		final_color.xyz = illumination;
-	} break;
-	case DebugRenderView_Depth:
-	{
-		final_color.xyz = 0.1f * ray.t;
-	} break;
-	case DebugRenderView_ViewDirection:
-	{
-		final_color.xyz = (ray.direction + 1.0f) * 0.5f;
-	} break;
+		Vec3 reflect_dir = Reflect(ray.direction, surface_normal);
+		Ray reflect_ray = { .origin = surface_point + reflect_dir * RAY_REFLECT_NUDGE_MULTIPLIER, .direction = reflect_dir };
+
+		float cosi = std::clamp(Vec3Dot(ray.direction, surface_normal), -1.0f, 1.0f);
+		float etai = 1.0f, etat = 1.2f;
+		Vec3 N = surface_normal;
+		Vec3 absorption(0.0f);
+
+		float Fr = 0.0f;
+		bool inside = true;
+
+		if (cosi < 0.0f)
+		{
+			cosi = -cosi;
+			inside = false;
+		}
+		else
+		{
+			std::swap(etai, etat);
+			N = -N;
+			absorption.x = std::expf(-surface_material.absorption.x * ray.t);
+			absorption.y = std::expf(-surface_material.absorption.y * ray.t);
+			absorption.z = std::expf(-surface_material.absorption.z * ray.t);
+		}
+
+		float eta = etai / etat;
+		float k = 1.0f - eta * eta * (1.0f - cosi * cosi);
+
+		if (k >= 0.0f)
+		{
+			Vec3 refract_dir = Vec3Normalize(ray.direction * eta + ((eta * cosi - std::sqrtf(k)) * N));
+			Ray refract_ray = { .origin = surface_point + refract_dir * RAY_REFLECT_NUDGE_MULTIPLIER, .direction = refract_dir };
+
+			float angle_in = Vec3Dot(ray.direction, surface_normal);
+			float angle_out = Vec3Dot(refract_dir, surface_normal);
+
+			Fr = Fresnel(angle_in, angle_out, etai, etat);
+			refract += TraceRay(refract_ray, next_depth).xyz * (1.0f - Fr);
+
+			if (inside)
+			{
+				refract *= absorption;
+			}
+		}
+
+		Vec4 reflect_color = TraceRay(reflect_ray, next_depth);
+		specular += surface_material.albedo.xyz * Fr * reflect_color.xyz;
 	}
+
+	final_color.xyz = diffuse + specular + refract;
+
+	if (depth == 0)
+	{
+		switch (data.debug_view)
+		{
+		case DebugRenderView_Diffuse:
+		{
+			final_color.xyz = diffuse;
+		} break;
+		case DebugRenderView_Specular:
+		{
+			final_color.xyz = specular;
+		} break;
+		case DebugRenderView_Refract:
+		{
+			final_color.xyz = refract;
+		} break;
+		case DebugRenderView_SurfaceNormal:
+		{
+			final_color.xyz = (surface_normal + 1.0f) * 0.5f;
+		} break;
+		case DebugRenderView_SurfaceAlbedo:
+		{
+			final_color.xyz = surface_material.albedo.xyz;
+		} break;
+		case DebugRenderView_DirectIllumination:
+		{
+			final_color.xyz = illumination;
+		} break;
+		case DebugRenderView_Depth:
+		{
+			final_color.xyz = 0.1f * ray.t;
+		} break;
+		case DebugRenderView_ViewDirection:
+		{
+			final_color.xyz = (ray.direction + 1.0f) * 0.5f;
+		} break;
+		}
+	}
+
 	return final_color;
 }
 
@@ -502,10 +583,12 @@ int main(int argc, char* argv[])
 	data.camera = Camera(Vec3(0.0f), Vec3(0.0f, 0.0f, -1.0f), 60.0f, (float)framebuffer_size.x / framebuffer_size.y);
 
 	data.pixels.resize(framebuffer_size.x * framebuffer_size.y);
-	data.materials.emplace_back(Vec4(0.5f, 0.35f, 0.25f, 1.0f), 0.5f);
-	data.materials.emplace_back(Vec4(0.1f, 0.25f, 0.8f, 1.0f), 0.5f);
+	data.materials.emplace_back(Vec4(0.8f, 0.8f, 0.8f, 1.0f), 0.5f, 0.0f, Vec3(0.0f));
+	data.materials.emplace_back(Vec4(0.3f, 0.2f, 0.2f, 1.0f), 0.0f, 0.8f, Vec3(0.0f, 0.9f, 0.9f));
 	data.planes.emplace_back(Vec3(0.0f, 1.0f, 0.0f), Vec3(0.0f, -2.0f, 0.0f), 0);
-	data.spheres.emplace_back(Vec3(0.0f, 0.0f, -2.0f), 1.0f * 1.0f, 1);
+	data.spheres.emplace_back(Vec3(-2.0f, 0.0f, -2.0f), 1.0f * 1.0f, 1);
+	data.spheres.emplace_back(Vec3(0.0f, 0.0f, -2.0f), 0.5f * 0.5f, 1);
+	data.spheres.emplace_back(Vec3(2.0f, 0.0f, -2.0f), 0.25f * 0.25f, 1);
 	data.point_lights.emplace_back(Vec3(0.0f, 2.0f, 2.0f), Vec3(1.0f), 100.0f);
 
 	std::chrono::high_resolution_clock::time_point curr_time = std::chrono::high_resolution_clock::now(),

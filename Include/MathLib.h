@@ -70,7 +70,14 @@ struct Vec3
 		};
 		float xyz[3] = { 0 };
 	};
+
+	inline Vec3& operator+=(const Vec3& v0) { x += v0.x; y += v0.y; z += v0.z; return *this; }
+	inline Vec3& operator-=(const Vec3& v0) { x -= v0.x; y -= v0.y; z -= v0.z; return *this; }
+	inline Vec3& operator*=(const Vec3& v0) { x *= v0.x; y *= v0.y; z *= v0.z; return *this; }
+	inline Vec3& operator/=(const Vec3& v0) { x /= v0.x; y /= v0.y; z /= v0.z; return *this; }
 };
+
+inline Vec3 operator-(const Vec3& v0) { return Vec3(-v0.x, -v0.y, -v0.z); }
 
 inline Vec3 operator+(const Vec3& v0, const Vec3& v1) { return Vec3(v0.x + v1.x, v0.y + v1.y, v0.z + v1.z); }
 inline Vec3 operator-(const Vec3& v0, const Vec3& v1) { return Vec3(v0.x - v1.x, v0.y - v1.y, v0.z - v1.z); }
