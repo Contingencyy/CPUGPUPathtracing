@@ -11,6 +11,16 @@ Features:
 - Pure specular reflections (recursive)
 - Dielectric materials like glass (recursive)
 - Beer's law (absorption within medium)
-- 
+
 https://github.com/Contingencyy/GraphicsAdvancedMasterclass/assets/34250026/45e9dc1d-ce37-4c9a-9801-f26bbefb4a2e
 
+Next steps: Cook raytracer
+Features:
+- Area lights
+- Soft shadows
+- Glossy reflections
+- Anti-aliasing
+- Motion blur
+- Depth of field
+
+Next steps: Path tracing
