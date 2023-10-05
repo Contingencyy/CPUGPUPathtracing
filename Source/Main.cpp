@@ -53,8 +53,7 @@
 
 /*
 	
-	Whitted-style raytracer:
-	Done:
+	Whitted-style raytracer (Finished):
 	- Direct illumination of multiple light sources, takes into account:
 		- Visibility
 		- Distance attenuation
@@ -62,6 +61,13 @@
 	- Pure specular reflections with recursion
 	- Dielectrics with fresnel with recursion
 	- Beer's Law
+
+	Cook raytracer (In-progress):
+	- Area lights
+	- Glossy reflections
+	- Anti-aliasing
+	- Motion blur
+	- Depth of field
 
 */
 
