@@ -11,4 +11,6 @@ Features:
 - Pure specular reflections (recursive)
 - Dielectric materials like glass (recursive)
 - Beer's law (absorption within medium)
-![image](https://github.com/Contingencyy/AllocatorPlayground/assets/34250026/177e3a4f-a259-4b43-a44c-5fa0da896b9b)
+- 
+https://github.com/Contingencyy/GraphicsAdvancedMasterclass/assets/34250026/45e9dc1d-ce37-4c9a-9801-f26bbefb4a2e
+
