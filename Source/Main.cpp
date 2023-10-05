@@ -80,7 +80,6 @@ struct Ray
 	Vec3 origin = Vec3(0.0f);
 	Vec3 direction = Vec3(0.0f);
 	float t = 1e34f;
-	bool inside = false;
 
 	struct Payload
 	{
@@ -439,12 +438,9 @@ Vec4 TraceRay(Ray& ray, uint8_t depth)
 		Vec3 reflect_dir = Reflect(ray.direction, surface_normal);
 		Ray reflect_ray = { .origin = surface_point + reflect_dir * RAY_REFLECT_NUDGE_MULTIPLIER, .direction = reflect_dir };
 
-		float cosi = std::clamp(Vec3Dot(ray.direction, surface_normal), -1.0f, 1.0f);
-		float etai = 1.0f, etat = surface_material.ior;
 		Vec3 N = surface_normal;
-		Vec3 absorption(0.0f);
-
-		float Fr = 0.0f;
+		float cosi = std::clamp(Vec3Dot(N, ray.direction), -1.0f, 1.0f);
+		float etai = 1.0f, etat = surface_material.ior;
 		bool inside = true;
 
 		if (cosi < 0.0f)
@@ -454,15 +450,13 @@ Vec4 TraceRay(Ray& ray, uint8_t depth)
 		}
 		else
 		{
+			N = -surface_normal;
 			std::swap(etai, etat);
-			N = -N;
-			absorption.x = std::expf(-surface_material.absorption.x * ray.t);
-			absorption.y = std::expf(-surface_material.absorption.y * ray.t);
-			absorption.z = std::expf(-surface_material.absorption.z * ray.t);
 		}
 
 		float eta = etai / etat;
 		float k = 1.0f - eta * eta * (1.0f - cosi * cosi);
+		float Fr = 1.0f;
 
 		if (k >= 0.0f)
 		{
@@ -474,6 +468,11 @@ Vec4 TraceRay(Ray& ray, uint8_t depth)
 
 			Fr = Fresnel(angle_in, angle_out, etai, etat);
 			refract += TraceRay(refract_ray, next_depth).xyz * (1.0f - Fr);
+
+			Vec3 absorption(0.0f);
+			absorption.x = std::expf(-surface_material.absorption.x * ray.t);
+			absorption.y = std::expf(-surface_material.absorption.y * ray.t);
+			absorption.z = std::expf(-surface_material.absorption.z * ray.t);
 
 			if (inside)
 			{
