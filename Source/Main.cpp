@@ -112,6 +112,7 @@ struct Material
 	float specular = 0.0f;
 	float refractivity = 0.0f;
 	Vec3 absorption = Vec3(0.0f);
+	float ior = 1.0f;
 };
 
 struct PointLight
@@ -439,7 +440,7 @@ Vec4 TraceRay(Ray& ray, uint8_t depth)
 		Ray reflect_ray = { .origin = surface_point + reflect_dir * RAY_REFLECT_NUDGE_MULTIPLIER, .direction = reflect_dir };
 
 		float cosi = std::clamp(Vec3Dot(ray.direction, surface_normal), -1.0f, 1.0f);
-		float etai = 1.0f, etat = 1.2f;
+		float etai = 1.0f, etat = surface_material.ior;
 		Vec3 N = surface_normal;
 		Vec3 absorption(0.0f);
 
@@ -579,15 +580,25 @@ int main(int argc, char* argv[])
 	ThreadPool::Init();
 
 	data.camera = Camera(Vec3(0.0f), Vec3(0.0f, 0.0f, -1.0f), 60.0f, (float)framebuffer_size.x / framebuffer_size.y);
-
 	data.pixels.resize(framebuffer_size.x * framebuffer_size.y);
-	data.materials.emplace_back(Vec4(0.3f, 0.3f, 0.3f, 1.0f), 0.5f, 0.0f, Vec3(0.0f));
-	data.materials.emplace_back(Vec4(0.5f, 0.1f, 0.15f, 1.0f), 0.0f, 0.8f, Vec3(0.0f, 0.9f, 0.9f));
-	data.planes.emplace_back(Vec3(0.0f, 1.0f, 0.0f), Vec3(0.0f, -2.0f, 0.0f), 0);
-	data.spheres.emplace_back(Vec3(-2.0f, 0.0f, -2.0f), 1.0f * 1.0f, 1);
-	data.spheres.emplace_back(Vec3(0.0f, 0.0f, -2.0f), 0.5f * 0.5f, 1);
-	data.spheres.emplace_back(Vec3(2.0f, 0.0f, -2.0f), 0.25f * 0.25f, 1);
-	data.point_lights.emplace_back(Vec3(0.0f, 2.0f, 2.0f), Vec3(1.0f), 100.0f);
+
+	data.materials.emplace_back(Vec4(0.3f, 0.3f, 0.3f, 1.0f), 0.0f, 0.0f, Vec3(0.0f), 1.0f);
+	data.materials.emplace_back(Vec4(0.9f, 0.3f, 0.3f, 1.0f), 0.0f, 0.0f, Vec3(0.0f), 1.0f);
+	data.materials.emplace_back(Vec4(0.3f, 0.3f, 0.9f, 1.0f), 0.0f, 0.0f, Vec3(0.0f), 1.0f);
+	data.materials.emplace_back(Vec4(0.2f, 0.2f, 0.2f, 1.0f), 0.0f, 0.8f, Vec3(0.9f, 0.2f, 0.3f), 1.517f);
+
+	data.planes.emplace_back(Vec3(0.0f, 1.0f, 0.0f), Vec3(0.0f, -5.0f, 0.0f), 0);
+	data.planes.emplace_back(Vec3(0.0f, -1.0f, 0.0f), Vec3(0.0f, 5.0f, 0.0f), 0);
+	data.planes.emplace_back(Vec3(1.0f, 0.0f, 0.0f), Vec3(-5.0f, 0.0f, 0.0f), 1);
+	data.planes.emplace_back(Vec3(-1.0f, 0.0f, 0.0f), Vec3(5.0f, 0.0f, 0.0f), 1);
+	data.planes.emplace_back(Vec3(0.0f, 0.0f, 1.0f), Vec3(0.0f, 0.0f, -5.0f), 2);
+	data.planes.emplace_back(Vec3(0.0f, 0.0f, -1.0f), Vec3(0.0f, 0.0f, 5.0f), 2);
+
+	data.spheres.emplace_back(Vec3(-2.0f, 0.0f, -2.0f), 1.0f * 1.0f, 3);
+	data.spheres.emplace_back(Vec3(0.0f, 0.0f, -2.0f), 0.5f * 0.5f, 3);
+	data.spheres.emplace_back(Vec3(2.0f, 0.0f, -2.0f), 0.25f * 0.25f, 3);
+
+	data.point_lights.emplace_back(Vec3(0.0f, 4.5f, 0.0f), Vec3(1.0f), 200.0f);
 
 	std::chrono::high_resolution_clock::time_point curr_time = std::chrono::high_resolution_clock::now(),
 		last_time = std::chrono::high_resolution_clock::now();
