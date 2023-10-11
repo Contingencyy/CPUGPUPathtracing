@@ -136,10 +136,12 @@
     <ClCompile Include="Extern\imgui\imgui_impl_win32.cpp" />
     <ClCompile Include="Extern\imgui\imgui_tables.cpp" />
     <ClCompile Include="Extern\imgui\imgui_widgets.cpp" />
+    <ClCompile Include="Source\BVH.cpp" />
     <ClCompile Include="Source\DX12.cpp" />
     <ClCompile Include="Source\Input.cpp" />
     <ClCompile Include="Source\Main.cpp" />
     <ClCompile Include="Source\MathLib.cpp" />
+    <ClCompile Include="Source\Primitives.cpp" />
     <ClCompile Include="Source\ThreadPool.cpp" />
     <ClCompile Include="Source\Window.cpp" />
   </ItemGroup>
@@ -148,9 +150,12 @@
     <ClInclude Include="Extern\imgui\imgui_impl_dx12.h" />
     <ClInclude Include="Extern\imgui\imgui_impl_win32.h" />
     <ClInclude Include="Extern\imgui\imgui_internal.h" />
+    <ClInclude Include="Include\BVH.h" />
     <ClInclude Include="Include\DX12.h" />
     <ClInclude Include="Include\Input.h" />
     <ClInclude Include="Include\MathLib.h" />
+    <ClInclude Include="Include\Primitives.h" />
+    <ClInclude Include="Include\Random.h" />
     <ClInclude Include="Include\ThreadPool.h" />
     <ClInclude Include="Include\Window.h" />
   </ItemGroup>

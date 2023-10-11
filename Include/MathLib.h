@@ -87,9 +87,15 @@ inline Vec3 operator*(const float s, const Vec3& v0) { return Vec3(v0.x * s, v0.
 inline Vec3 operator/(const Vec3& v0, const float s) { return Vec3(v0.x / s, v0.y / s, v0.z / s); }
 inline Vec3 operator/(const float s, const Vec3& v0) { return Vec3(v0.x / s, v0.y / s, v0.z / s); }
 
+inline Vec3 Vec3Cross(const Vec3& v0, const Vec3& v1) { return Vec3(v0.y * v1.z - v0.z * v1.y, v0.z * v1.x - v0.x * v1.z, v0.x * v1.y - v0.y * v1.x); }
 inline float Vec3Dot(const Vec3& v0, const Vec3& v1) { return v0.x * v1.x + v0.y * v1.y + v0.z * v1.z; }
 inline float Vec3Length(const Vec3& v0) { return std::sqrtf(Vec3Dot(v0, v0)); }
 inline Vec3 Vec3Normalize(const Vec3& v0) { float rcp_length = 1.0f / Vec3Length(v0); return v0 * rcp_length; }
+
+inline Vec3 Vec3Min(const Vec3& v0, const Vec3& v1) { return Vec3(std::min(v0.x, v1.x), std::min(v0.y, v1.y), std::min(v0.z, v1.z)); }
+inline Vec3 Vec3Max(const Vec3& v0, const Vec3& v1) { return Vec3(std::max(v0.x, v1.x), std::max(v0.y, v1.y), std::max(v0.z, v1.z)); }
+
+inline Vec3 Vec3Lerp(const Vec3& v0, const Vec3& v1, float s) { return Vec3(v0.x + (v1.x - v0.x) * s, v0.y + (v1.y - v0.y) * s, v0.z + (v1.z - v0.z) * s); }
 
 struct Vec4
 {

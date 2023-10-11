@@ -3,6 +3,9 @@
 #include "Window.h"
 #include "Input.h"
 #include "ThreadPool.h"
+#include "Primitives.h"
+#include "Random.h"
+#include "BVH.h"
 
 #define WIN32_LEAN_AND_MEAN
 #include <Windows.h>
@@ -73,43 +76,6 @@
 
 static constexpr uint8_t MAX_RAY_DEPTH = 5;
 static constexpr float RAY_REFLECT_NUDGE_MULTIPLIER = 0.001f;
-
-enum ObjectType : uint8_t
-{
-	ObjectType_Plane,
-	ObjectType_Sphere,
-	ObjectType_NumTypes
-};
-
-struct Ray
-{
-	Vec3 origin = Vec3(0.0f);
-	Vec3 direction = Vec3(0.0f);
-	float t = 1e34f;
-
-	struct Payload
-	{
-		ObjectType object_type;
-		void* object_ptr;
-		uint32_t mat_index;
-	} payload;
-};
-
-struct Plane
-{
-	Vec3 normal = Vec3(0.0f);
-	Vec3 point = Vec3(0.0f);
-
-	uint32_t mat_index = 0;
-};
-
-struct Sphere
-{
-	Vec3 center = Vec3(0.0f);
-	float radius_sq = 0.0f;
-
-	uint32_t mat_index = 0;
-};
 
 struct Material
 {
@@ -198,12 +164,13 @@ enum DebugRenderView
 	DebugRenderView_DirectIllumination,
 	DebugRenderView_Depth,
 	DebugRenderView_ViewDirection,
+	DebugRenderView_BVHDepth,
 	DebugRenderView_NumViews
 };
 
 std::vector<const char*> debug_render_view_names =
 {
-	{ "None", "Diffuse", "Specular", "Refract", "Surface normal", "Surface albedo", "Direct illumination", "Depth", "View direction" }
+	{ "None", "Diffuse", "Specular", "Refract", "Surface normal", "Surface albedo", "Direct illumination", "Depth", "View direction", "BVH Depth" }
 };
 
 struct Data
@@ -213,7 +180,10 @@ struct Data
 	std::vector<Material> materials;
 	std::vector<Plane> planes;
 	std::vector<Sphere> spheres;
+	std::vector<Triangle> triangles;
 	std::vector<PointLight> point_lights;
+
+	BVH bounding_volume_hierarchy;
 
 	Camera camera;
 
@@ -236,123 +206,16 @@ void Update(float dt)
 	}
 
 	data.camera.Update(dt);
-
-	static float t = 0.0f;
-	t += dt;
-	for (auto& sphere : data.spheres)
-	{
-		sphere.center.y = cosf(t);
-	}
 }
 
-void IntersectPlane(const Plane& plane, Ray& ray)
+void IntersectScene(Ray& ray)
 {
-	// Plane: P * N + d = 0
-	// Ray: P(t) = O + tD
-
-	float denom = Vec3Dot(ray.direction, plane.normal);
-
-	if (std::fabs(denom) > 1e-6)
-	{
-		Vec3 p0 = plane.point - ray.origin;
-		float t = Vec3Dot(p0, plane.normal) / denom;
-
-		if (t > 0.0f && t < ray.t)
-		{
-			ray.t = t;
-			ray.payload.object_type = ObjectType_Plane;
-			ray.payload.object_ptr = (void*)&plane;
-			ray.payload.mat_index = plane.mat_index;
-		}
-	}
-}
-
-void IntersectSphere(const Sphere& sphere, Ray& ray)
-{
-	float t0, t1;
-#if 1
-	// Seems to be faster than solving the quadratic
-	Vec3 L = sphere.center - ray.origin;
-	float tca = Vec3Dot(L, ray.direction);
-
-	if (tca < 0.0f)
-	{
-		return;
-	}
-
-	float d2 = Vec3Dot(L, L) - tca * tca;
-
-	if (d2 > sphere.radius_sq)
-	{
-		return;
-	}
-
-	float thc = std::sqrtf(sphere.radius_sq - d2);
-	t0 = tca - thc;
-	t1 = tca + thc;
-#else
-	Vec3 L = ray.origin - sphere.center;
-	float a = Vec3Dot(ray.direction, ray.direction);
-	float b = 2 * Vec3Dot(ray.direction, L);
-	float c = Vec3Dot(L, L) - sphere.radius_sq;
-
-	if (!SolveQuadratic(a, b, c, t0, t1))
-	{
-		return;
-	}
-#endif
-	if (t0 > t1)
-	{
-		std::swap(t0, t1);
-	}
-
-	if (t0 < 0.0f) {
-		t0 = t1;
-
-		if (t0 < 0.0f)
-		{
-			return;
-		}
-	}
-
-	if (t0 < ray.t)
-	{
-		ray.t = t0;
-		ray.payload.object_type = ObjectType_Sphere;
-		ray.payload.object_ptr = (void*)&sphere;
-		ray.payload.mat_index = sphere.mat_index;
-	}
-}
-
-Vec3 GetObjectSurfaceNormalAtPoint(ObjectType type, void* ptr, const Vec3& point)
-{
-	switch (type)
-	{
-	case ObjectType_Plane:
-	{
-		Plane* plane = reinterpret_cast<Plane*>(ptr);
-		return plane->normal;
-	} break;
-	case ObjectType_Sphere:
-	{
-		Sphere* sphere = reinterpret_cast<Sphere*>(ptr);
-		return Vec3Normalize(point - sphere->center);
-	} break;
-	}
+	data.bounding_volume_hierarchy.Traverse(ray);
 }
 
 bool TraceShadowRay(Ray& shadow_ray)
 {
-	for (const auto& plane : data.planes)
-	{
-		IntersectPlane(plane, shadow_ray);
-	}
-
-	for (const auto& sphere : data.spheres)
-	{
-		IntersectSphere(sphere, shadow_ray);
-	}
-
+	IntersectScene(shadow_ray);
 	return shadow_ray.payload.object_ptr != nullptr;
 }
 
@@ -403,15 +266,7 @@ Vec4 TraceRay(Ray& ray, uint8_t depth)
 
 	uint8_t next_depth = depth + 1;
 
-	for (const auto& plane : data.planes)
-	{
-		IntersectPlane(plane, ray);
-	}
-	
-	for (const auto& sphere : data.spheres)
-	{
-		IntersectSphere(sphere, ray);
-	}
+	IntersectScene(ray);
 
 	if (!ray.payload.object_ptr)
 	{
@@ -528,6 +383,11 @@ Vec4 TraceRay(Ray& ray, uint8_t depth)
 		{
 			final_color.xyz = (ray.direction + 1.0f) * 0.5f;
 		} break;
+		case DebugRenderView_BVHDepth:
+		{
+			// Lerp from white to dark red based on bvh depth
+			final_color.xyz = Vec3Lerp(Vec3(1.0f), Vec3(1.0f, 0.0f, 0.0f), std::min(1.0f, (float)ray.payload.bvh_depth / 20.0f));
+		} break;
 		}
 	}
 
@@ -593,7 +453,7 @@ int main(int argc, char* argv[])
 	data.materials.emplace_back(Vec4(0.2f, 0.2f, 0.2f, 1.0f), 0.0f, 0.8f, Vec3(0.9f, 0.2f, 0.3f), 1.517f);
 
 	data.planes.emplace_back(Vec3(0.0f, 1.0f, 0.0f), Vec3(0.0f, -5.0f, 0.0f), 0);
-	data.planes.emplace_back(Vec3(0.0f, -1.0f, 0.0f), Vec3(0.0f, 5.0f, 0.0f), 0);
+	/*data.planes.emplace_back(Vec3(0.0f, -1.0f, 0.0f), Vec3(0.0f, 5.0f, 0.0f), 0);
 	data.planes.emplace_back(Vec3(1.0f, 0.0f, 0.0f), Vec3(-5.0f, 0.0f, 0.0f), 1);
 	data.planes.emplace_back(Vec3(-1.0f, 0.0f, 0.0f), Vec3(5.0f, 0.0f, 0.0f), 1);
 	data.planes.emplace_back(Vec3(0.0f, 0.0f, 1.0f), Vec3(0.0f, 0.0f, -5.0f), 2);
@@ -601,7 +461,19 @@ int main(int argc, char* argv[])
 
 	data.spheres.emplace_back(Vec3(-2.0f, 0.0f, -2.0f), 1.0f * 1.0f, 3);
 	data.spheres.emplace_back(Vec3(0.0f, 0.0f, -2.0f), 0.5f * 0.5f, 3);
-	data.spheres.emplace_back(Vec3(2.0f, 0.0f, -2.0f), 0.25f * 0.25f, 3);
+	data.spheres.emplace_back(Vec3(2.0f, 0.0f, -2.0f), 0.25f * 0.25f, 3);*/
+
+	for (uint32_t i = 0; i < 64; ++i)
+	{
+		Vec3 v0 = RandomVec3(-4.0f, 4.0f);
+		Vec3 v1 = RandomVec3();
+		Vec3 v2 = RandomVec3();
+		v1 = v0 + v1;
+		v2 = v0 + v2;
+		data.triangles.emplace_back(v0, v1, v2, RandomUInt32(0, 2));
+	}
+	//data.triangles.emplace_back(Vec3(0.0f, 2.0f, -1.0f), Vec3(2.0f, 0.0f, -1.0f), Vec3(-2.0f, 0.0f, -1.0f), 0);
+	data.bounding_volume_hierarchy.Build(data.triangles);
 
 	data.point_lights.emplace_back(Vec3(0.0f, 4.5f, 0.0f), Vec3(1.0f), 200.0f);
 
