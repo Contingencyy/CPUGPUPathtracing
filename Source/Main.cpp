@@ -268,6 +268,14 @@ Vec4 TraceRay(Ray& ray, uint8_t depth)
 
 	IntersectScene(ray);
 
+	if (depth == 0 && data.debug_view == DebugRenderView_BVHDepth)
+	{
+		// Lerp from white to dark red based on bvh depth
+		Vec4 bvh_depth_color = Vec4(1.0f);
+		bvh_depth_color.xyz = Vec3Lerp(Vec3(1.0f), Vec3(1.0f, 0.0f, 0.0f), std::min(1.0f, (float)ray.payload.bvh_depth / 20.0f));
+		return bvh_depth_color;
+	}
+
 	if (!ray.payload.object_ptr)
 	{
 		return Vec4(0.5f, 0.8f, 1.0f, 1.0f);
@@ -382,11 +390,6 @@ Vec4 TraceRay(Ray& ray, uint8_t depth)
 		case DebugRenderView_ViewDirection:
 		{
 			final_color.xyz = (ray.direction + 1.0f) * 0.5f;
-		} break;
-		case DebugRenderView_BVHDepth:
-		{
-			// Lerp from white to dark red based on bvh depth
-			final_color.xyz = Vec3Lerp(Vec3(1.0f), Vec3(1.0f, 0.0f, 0.0f), std::min(1.0f, (float)ray.payload.bvh_depth / 20.0f));
 		} break;
 		}
 	}
