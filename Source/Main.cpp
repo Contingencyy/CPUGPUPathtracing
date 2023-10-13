@@ -308,7 +308,7 @@ Vec4 TraceRay(Ray& ray, uint8_t depth)
 		float cosi = Vec3Dot(diffuse_dir, surface_normal);
 		Vec4 irradiance = cosi * TraceRay(diffuse_ray, depth + 1);
 
-		if (diffuse_ray.payload.object_index != ~0u && data.materials[data.prims[diffuse_ray.payload.object_index].mat_index].is_light)
+		if (diffuse_ray.payload.object_index != ~0u)
 		{
 			Vec3 diffuse_brdf = surface_material.albedo * INV_PI;
 			diffuse = 2.0f * PI * diffuse_brdf * irradiance.xyz;
@@ -400,8 +400,8 @@ void Render()
 int main(int argc, char* argv[])
 {
 	Window::CreateWindowArgs window_args = {};
-	window_args.width = 640;
-	window_args.height = 480;
+	window_args.width = 1280;
+	window_args.height = 720;
 	window_args.title = L"Graphics Advanced Masterclass";
 	Window::Create(window_args);
 
@@ -419,10 +419,10 @@ int main(int argc, char* argv[])
 	data.accumulator.resize(framebuffer_size.x * framebuffer_size.y);
 	data.camera = Camera(Vec3(0.0f), Vec3(0.0f, 0.0f, -1.0f), 60.0f, (float)framebuffer_size.x / framebuffer_size.y);
 
-	data.materials.emplace_back(Vec3(0.6f, 0.1f, 0.1f), Vec3(0.0f), 0.0f, 0.0f, Vec3(0.0f), 1.0f, false);
-	data.materials.emplace_back(Vec3(0.1f, 0.1f, 0.6f), Vec3(0.0f), 0.0f, 0.0f, Vec3(0.0f), 1.0f, false);
-	data.materials.emplace_back(Vec3(0.6f), Vec3(0.0f), 0.0f, 0.0f, Vec3(0.0f), 1.0f, false);
-	data.materials.emplace_back(Vec3(1.0f), Vec3(100.0f), 0.0f, 0.0f, Vec3(0.0f), 1.0f, true);
+	data.materials.emplace_back(Vec3(0.4f, 0.1f, 0.1f), Vec3(0.0f), 0.0f, 0.0f, Vec3(0.0f), 1.0f, false);
+	data.materials.emplace_back(Vec3(0.1f, 0.1f, 0.4f), Vec3(0.0f), 0.0f, 0.0f, Vec3(0.0f), 1.0f, false);
+	data.materials.emplace_back(Vec3(0.4f), Vec3(0.0f), 0.0f, 0.0f, Vec3(0.0f), 1.0f, false);
+	data.materials.emplace_back(Vec3(1.0f), Vec3(50.0f), 0.0f, 0.0f, Vec3(0.0f), 1.0f, true);
 	//data.materials.emplace_back(Vec4(0.2f, 0.2f, 0.2f, 1.0f), 0.0f, 0.8f, Vec3(0.9f, 0.2f, 0.3f), 1.517f);
 
 	Plane* plane = new Plane{ Vec3(0.0f, 1.0f, 0.0f), Vec3(0.0f, 0.0f, 0.0f) };
@@ -441,8 +441,8 @@ int main(int argc, char* argv[])
 	data.prims.emplace_back(PrimitiveType_Sphere, sphere5, 2);
 	data.prims.emplace_back(PrimitiveType_Sphere, sphere6, 2);
 
-	Triangle* triangle1 = new Triangle{ Vec3(2.0f, 6.0f, -10.0f), Vec3(2.0f, 6.0f, 2.0f), Vec3(8.0f, 6.0f, 2.0f) };
-	Triangle* triangle2 = new Triangle{ Vec3(8.0f, 6.0f, 2.0f), Vec3(8.0f, 6.0f, -10.0f), Vec3(2.0f, 6.0f, -10.0f) };
+	Triangle* triangle1 = new Triangle{ Vec3(5.0f, 10.0f, -10.0f), Vec3(5.0f, 10.0f, 0.0f), Vec3(20.0f, 10.0f, 0.0f) };
+	Triangle* triangle2 = new Triangle{ Vec3(20.0f, 10.0f, 0.0f), Vec3(20.0f, 10.0f, -10.0f), Vec3(5.0f, 10.0f, -10.0f) };
 	data.prims.emplace_back(PrimitiveType_Triangle, triangle1, 3);
 	data.prims.emplace_back(PrimitiveType_Triangle, triangle2, 3);
 
@@ -475,6 +475,7 @@ int main(int argc, char* argv[])
 		Render();
 
 		ImGui::Begin("General");
+		ImGui::Text("Accumulated frames: %u", data.num_accumulated);
 		ImGui::Text("Frame time (CPU): %.3f ms", delta_time.count() * 1000.0f);
 		if (ImGui::BeginCombo("Debug render view", debug_render_view_names[data.debug_view]))
 		{
