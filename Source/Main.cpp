@@ -80,18 +80,13 @@ static constexpr float RAY_REFLECT_NUDGE_MULTIPLIER = 0.001f;
 
 struct Material
 {
-	Vec4 albedo = Vec4(0.0f);
+	Vec3 albedo = Vec3(0.0f);
+	Vec3 emissive = Vec3(0.0f);
 	float specular = 0.0f;
 	float refractivity = 0.0f;
 	Vec3 absorption = Vec3(0.0f);
 	float ior = 1.0f;
-};
-
-struct PointLight
-{
-	Vec3 position = Vec3(0.0f);
-	Vec3 color = Vec3(1.0f);
-	float intensity = 1.0f;
+	bool is_light = false;
 };
 
 class Camera
@@ -106,9 +101,12 @@ public:
 
 	bool Update(float dt)
 	{
-		//Vec2 mouse_move = Input::GetMouseMoveRel();
 		bool view_changed = false;
 
+		// Camera look
+		Vec2 mouse_move = Input::GetMouseMoveRel();
+
+		// Camera movement
 		float right_velocity = Input::GetInputAxis1D(Input::KeyCode_A, Input::KeyCode_D) * dt * m_speed;
 		float up_velocity = Input::GetInputAxis1D(Input::KeyCode_Space, Input::KeyCode_LeftShift) * dt * m_speed;
 		float forward_velocity = Input::GetInputAxis1D(Input::KeyCode_W, Input::KeyCode_S) * dt * m_speed;
@@ -177,7 +175,6 @@ enum DebugRenderView
 	DebugRenderView_Refract,
 	DebugRenderView_SurfaceNormal,
 	DebugRenderView_SurfaceAlbedo,
-	DebugRenderView_DirectIllumination,
 	DebugRenderView_Depth,
 	DebugRenderView_ViewDirection,
 	DebugRenderView_BVHDepth,
@@ -186,7 +183,14 @@ enum DebugRenderView
 
 std::vector<const char*> debug_render_view_names =
 {
-	{ "None", "Diffuse", "Specular", "Refract", "Surface normal", "Surface albedo", "Direct illumination", "Depth", "View direction", "BVH Depth" }
+	{ "None", "Diffuse", "Specular", "Refract", "Surface normal", "Surface albedo", "Depth", "View direction", "BVH Depth" }
+};
+
+struct Primitive
+{
+	PrimitiveType type = PrimitiveType_NumTypes;
+	void* prim_ptr = nullptr;
+	uint32_t mat_index = 0;
 };
 
 struct Data
@@ -196,11 +200,8 @@ struct Data
 	std::vector<Vec4> accumulator;
 	uint32_t num_accumulated = 0;
 
+	std::vector<Primitive> prims;
 	std::vector<Material> materials;
-	std::vector<Plane> planes;
-	std::vector<Sphere> spheres;
-	std::vector<Triangle> triangles;
-	std::vector<PointLight> point_lights;
 
 	BVH bounding_volume_hierarchy;
 
@@ -236,163 +237,83 @@ void IntersectScene(Ray& ray)
 {
 	//data.bounding_volume_hierarchy.Traverse(ray);
 
-	for (auto& plane : data.planes)
+	for (uint32_t object_index = 0; object_index < data.prims.size(); ++object_index)
 	{
-		IntersectPlane(plane, ray);
-	}
+		Primitive& prim = data.prims[object_index];
+		bool intersected = false;
 
-	for (auto& sphere : data.spheres)
-	{
-		IntersectSphere(sphere, ray);
-	}
-}
-
-bool TraceShadowRay(Ray& shadow_ray)
-{
-	IntersectScene(shadow_ray);
-	return shadow_ray.payload.object_ptr != nullptr;
-}
-
-Vec3 GetDirectIlluminationAtPoint(const Vec3& point, const Vec3& normal)
-{
-	for (const auto& point_light : data.point_lights)
-	{
-		float distance_to_light = Vec3Length(point_light.position - point);
-		Vec3 light_dir = Vec3Normalize(point_light.position - point);
-
-		Ray shadow_ray = { .origin = point + light_dir * RAY_REFLECT_NUDGE_MULTIPLIER, .direction = light_dir, .t = distance_to_light };
-		bool occluded = TraceShadowRay(shadow_ray);
-
-		if (occluded)
+		switch (prim.type)
 		{
-			return Vec3(0.0f, 0.0f, 0.0f);
+		case PrimitiveType_Plane:
+			intersected = IntersectPlane(*(Plane*)prim.prim_ptr, ray);
+			break;
+		case PrimitiveType_Sphere:
+			intersected = IntersectSphere(*(Sphere*)prim.prim_ptr, ray);
+			break;
+		case PrimitiveType_Triangle:
+			intersected = IntersectTriangle(*(Triangle*)prim.prim_ptr, ray);
+			break;
+		case PrimitiveType_AABB:
+			intersected = IntersectAABB(*(AABB*)prim.prim_ptr, ray);
+			break;
 		}
 
-		float NoL = std::max(0.0f, Vec3Dot(normal, light_dir));
-		float attenuation = 1.0f / (distance_to_light * distance_to_light);
-		Vec3 radiance = point_light.color * point_light.intensity * attenuation;
-		Vec3 indicent_light = radiance * NoL;
-
-		return indicent_light;
+		if (intersected)
+			ray.payload.object_index = object_index;
 	}
-}
-
-Vec3 Reflect(const Vec3& dir, const Vec3& normal)
-{
-	return dir - 2.0f * normal * Vec3Dot(dir, normal);
-}
-
-float Fresnel(float in, float out, float ior_outside, float ior_inside)
-{
-	float sPolarized = (ior_outside * in - ior_inside * out) /
-		(ior_outside * in + ior_inside * out);
-	float pPolarized = (ior_outside * out - ior_inside * in) /
-		(ior_outside * out + ior_inside * in);
-	return 0.5f * ((sPolarized * sPolarized) + (pPolarized * pPolarized));
 }
 
 Vec4 TraceRay(Ray& ray, uint8_t depth)
 {
+	// Abort, max ray depth has been reached, return black
 	if (depth == MAX_RAY_DEPTH)
-	{
 		return Vec4(0.0f);
-	}
-
-	uint8_t next_depth = depth + 1;
 
 	IntersectScene(ray);
 
-	if (depth == 0 && data.debug_view == DebugRenderView_BVHDepth)
+	// We have not hit anything, so we return black (or sky color)
+	if (ray.payload.object_index == ~0u)
+		return Vec4(0.0f);
+
+	// If we have hit a light source, we return its emissive color
+	const Primitive& prim = data.prims[ray.payload.object_index];
+	Material& surface_material = data.materials[prim.mat_index];
+
+	if (surface_material.is_light)
 	{
-		// Lerp from white to dark red based on bvh depth
-		Vec4 bvh_depth_color = Vec4(1.0f);
-		bvh_depth_color.xyz = Vec3Lerp(Vec3(1.0f), Vec3(1.0f, 0.0f, 0.0f), std::min(1.0f, (float)ray.payload.bvh_depth / 20.0f));
-		return bvh_depth_color;
+		return Vec4(surface_material.emissive, 1.0f);
 	}
 
-	if (!ray.payload.object_ptr)
-	{
-		return Vec4(0.5f, 0.8f, 1.0f, 1.0f);
-	}
+	//if (depth == 0 && data.debug_view == DebugRenderView_BVHDepth)
+	//{
+	//	// Lerp from white to dark red based on bvh depth
+	//	Vec4 bvh_depth_color = Vec4(1.0f);
+	//	bvh_depth_color.xyz = Vec3Lerp(Vec3(1.0f), Vec3(1.0f, 0.0f, 0.0f), std::min(1.0f, (float)ray.payload.bvh_depth / 20.0f));
+	//	return bvh_depth_color;
+	//}
 
 	Vec4 final_color(0.0f, 0.0f, 0.0f, 1.0f);
 
 	Vec3 surface_point = ray.origin + ray.t * ray.direction;
-	Vec3 surface_normal = GetObjectSurfaceNormalAtPoint(ray.payload.object_type, ray.payload.object_ptr, surface_point);
-	Material& surface_material = data.materials[ray.payload.mat_index];
+	Vec3 surface_normal = GetObjectSurfaceNormalAtPoint(prim.type, prim.prim_ptr, surface_point);
 
-	Vec3 illumination = GetDirectIlluminationAtPoint(surface_point, surface_normal);
-
-	// Diffuse reflection
-	Vec3 diffuse_dir = Util::UniformHemisphereSample(surface_normal);
-	Ray diffuse_ray = { .origin = surface_point + diffuse_dir * RAY_REFLECT_NUDGE_MULTIPLIER, .direction = diffuse_dir };
-	Vec4 diffuse_color = TraceRay(diffuse_ray, next_depth);
-	Vec3 diffuse_brdf = surface_material.albedo.xyz * INV_PI;
-	float cosi = Vec3Dot(diffuse_dir, surface_normal);
-	Vec3 diffuse = 2.0f * PI * diffuse_brdf * cosi * diffuse_color.xyz;
-
-	//Vec3 diffuse = surface_material.albedo.xyz * INV_PI * (illumination + ambient) * (1.0f - surface_material.specular - surface_material.refractivity);
+	Vec3 diffuse(0.0f);
 	Vec3 specular(0.0f);
 	Vec3 refract(0.0f);
 
-	/*if (surface_material.specular > 0.0f)
+	// Diffuse reflection
 	{
-		Vec3 reflect_dir = Reflect(ray.direction, surface_normal);
-		Ray reflect_ray = { .origin = surface_point + reflect_dir * RAY_REFLECT_NUDGE_MULTIPLIER, .direction = reflect_dir };
-		Vec4 reflect_color = TraceRay(reflect_ray, next_depth);
-		specular += surface_material.albedo.xyz * reflect_color.xyz * surface_material.specular;
+		Vec3 diffuse_dir = Util::UniformHemisphereSample(surface_normal);
+		Ray diffuse_ray = { .origin = surface_point + diffuse_dir * RAY_REFLECT_NUDGE_MULTIPLIER, .direction = diffuse_dir };
+		float cosi = Vec3Dot(diffuse_dir, surface_normal);
+		Vec4 irradiance = cosi * TraceRay(diffuse_ray, depth + 1);
+
+		if (diffuse_ray.payload.object_index != ~0u && data.materials[data.prims[diffuse_ray.payload.object_index].mat_index].is_light)
+		{
+			Vec3 diffuse_brdf = surface_material.albedo * INV_PI;
+			diffuse = 2.0f * PI * diffuse_brdf * irradiance.xyz;
+		}
 	}
-
-	if (surface_material.refractivity > 0.0f)
-	{
-		Vec3 reflect_dir = Reflect(ray.direction, surface_normal);
-		Ray reflect_ray = { .origin = surface_point + reflect_dir * RAY_REFLECT_NUDGE_MULTIPLIER, .direction = reflect_dir };
-
-		Vec3 N = surface_normal;
-		float cosi = std::clamp(Vec3Dot(N, ray.direction), -1.0f, 1.0f);
-		float etai = 1.0f, etat = surface_material.ior;
-		bool inside = true;
-
-		if (cosi < 0.0f)
-		{
-			cosi = -cosi;
-			inside = false;
-		}
-		else
-		{
-			N = -surface_normal;
-			std::swap(etai, etat);
-		}
-
-		float eta = etai / etat;
-		float k = 1.0f - eta * eta * (1.0f - cosi * cosi);
-		float Fr = 1.0f;
-
-		if (k >= 0.0f)
-		{
-			Vec3 refract_dir = Vec3Normalize(ray.direction * eta + ((eta * cosi - std::sqrtf(k)) * N));
-			Ray refract_ray = { .origin = surface_point + refract_dir * RAY_REFLECT_NUDGE_MULTIPLIER, .direction = refract_dir };
-
-			float angle_in = Vec3Dot(ray.direction, surface_normal);
-			float angle_out = Vec3Dot(refract_dir, surface_normal);
-
-			Fr = Fresnel(angle_in, angle_out, etai, etat);
-			refract += TraceRay(refract_ray, next_depth).xyz * (1.0f - Fr);
-
-			Vec3 absorption(0.0f);
-			absorption.x = std::expf(-surface_material.absorption.x * ray.t);
-			absorption.y = std::expf(-surface_material.absorption.y * ray.t);
-			absorption.z = std::expf(-surface_material.absorption.z * ray.t);
-
-			if (inside)
-			{
-				refract *= absorption;
-			}
-		}
-
-		Vec4 reflect_color = TraceRay(reflect_ray, next_depth);
-		specular += surface_material.albedo.xyz * Fr * reflect_color.xyz;
-	}*/
 
 	final_color.xyz = diffuse + specular + refract;
 
@@ -418,11 +339,7 @@ Vec4 TraceRay(Ray& ray, uint8_t depth)
 		} break;
 		case DebugRenderView_SurfaceAlbedo:
 		{
-			final_color.xyz = surface_material.albedo.xyz;
-		} break;
-		case DebugRenderView_DirectIllumination:
-		{
-			final_color.xyz = illumination;
+			final_color.xyz = surface_material.albedo;
 		} break;
 		case DebugRenderView_Depth:
 		{
@@ -483,8 +400,8 @@ void Render()
 int main(int argc, char* argv[])
 {
 	Window::CreateWindowArgs window_args = {};
-	window_args.width = 1280;
-	window_args.height = 720;
+	window_args.width = 640;
+	window_args.height = 480;
 	window_args.title = L"Graphics Advanced Masterclass";
 	Window::Create(window_args);
 
@@ -502,19 +419,32 @@ int main(int argc, char* argv[])
 	data.accumulator.resize(framebuffer_size.x * framebuffer_size.y);
 	data.camera = Camera(Vec3(0.0f), Vec3(0.0f, 0.0f, -1.0f), 60.0f, (float)framebuffer_size.x / framebuffer_size.y);
 
-	data.materials.emplace_back(Vec4(0.6f, 0.1f, 0.1f, 1.0f), 0.0f, 0.0f, Vec3(0.0f), 1.0f);
-	data.materials.emplace_back(Vec4(0.1f, 0.1f, 0.6f, 1.0f), 0.0f, 0.0f, Vec3(0.0f), 1.0f);
-	data.materials.emplace_back(Vec4(0.6f, 0.6f, 0.6f, 1.0f), 0.0f, 0.0f, Vec3(0.0f), 1.0f);
+	data.materials.emplace_back(Vec3(0.6f, 0.1f, 0.1f), Vec3(0.0f), 0.0f, 0.0f, Vec3(0.0f), 1.0f, false);
+	data.materials.emplace_back(Vec3(0.1f, 0.1f, 0.6f), Vec3(0.0f), 0.0f, 0.0f, Vec3(0.0f), 1.0f, false);
+	data.materials.emplace_back(Vec3(0.6f), Vec3(0.0f), 0.0f, 0.0f, Vec3(0.0f), 1.0f, false);
+	data.materials.emplace_back(Vec3(1.0f), Vec3(100.0f), 0.0f, 0.0f, Vec3(0.0f), 1.0f, true);
 	//data.materials.emplace_back(Vec4(0.2f, 0.2f, 0.2f, 1.0f), 0.0f, 0.8f, Vec3(0.9f, 0.2f, 0.3f), 1.517f);
 
-	data.planes.emplace_back(Vec3(0.0f, 1.0f, 0.0f), Vec3(0.0f, 0.0f, 0.0f), 2);
+	Plane* plane = new Plane{ Vec3(0.0f, 1.0f, 0.0f), Vec3(0.0f, 0.0f, 0.0f) };
+	data.prims.emplace_back(PrimitiveType_Plane, plane, 2);
 
-	data.spheres.emplace_back(Vec3(0.0f, 1.5f, -2.0f), 1.0f * 1.0f, 0);
-	data.spheres.emplace_back(Vec3(2.5f, 1.5f, -3.0f), 1.0f * 1.0f, 2);
-	data.spheres.emplace_back(Vec3(5.0f, 1.5f, -4.0f), 1.0f * 1.0f, 1);
-	data.spheres.emplace_back(Vec3(0.0f, -1.5f, -2.0f), 2.0f * 2.0f, 2);
-	data.spheres.emplace_back(Vec3(2.5f, -1.5f, -3.0f), 2.0f * 2.0f, 2);
-	data.spheres.emplace_back(Vec3(5.0f, -1.5f, -4.0f), 2.0f * 2.0f, 2);
+	Sphere* sphere1 = new Sphere{ Vec3(0.0f, 1.5f, -2.0f), 1.0f * 1.0f };
+	Sphere* sphere2 = new Sphere{ Vec3(2.5f, 1.5f, -3.0f), 1.0f * 1.0f };
+	Sphere* sphere3 = new Sphere{ Vec3(5.0f, 1.5f, -4.0f), 1.0f * 1.0f };
+	Sphere* sphere4 = new Sphere{ Vec3(0.0f, -1.5f, -2.0f), 2.0f * 2.0f };
+	Sphere* sphere5 = new Sphere{ Vec3(2.5f, -1.5f, -3.0f), 2.0f * 2.0f };
+	Sphere* sphere6 = new Sphere{ Vec3(5.0f, -1.5f, -4.0f), 2.0f * 2.0f };
+	data.prims.emplace_back(PrimitiveType_Sphere, sphere1, 0);
+	data.prims.emplace_back(PrimitiveType_Sphere, sphere2, 2);
+	data.prims.emplace_back(PrimitiveType_Sphere, sphere3, 1);
+	data.prims.emplace_back(PrimitiveType_Sphere, sphere4, 2);
+	data.prims.emplace_back(PrimitiveType_Sphere, sphere5, 2);
+	data.prims.emplace_back(PrimitiveType_Sphere, sphere6, 2);
+
+	Triangle* triangle1 = new Triangle{ Vec3(2.0f, 6.0f, -10.0f), Vec3(2.0f, 6.0f, 2.0f), Vec3(8.0f, 6.0f, 2.0f) };
+	Triangle* triangle2 = new Triangle{ Vec3(8.0f, 6.0f, 2.0f), Vec3(8.0f, 6.0f, -10.0f), Vec3(2.0f, 6.0f, -10.0f) };
+	data.prims.emplace_back(PrimitiveType_Triangle, triangle1, 3);
+	data.prims.emplace_back(PrimitiveType_Triangle, triangle2, 3);
 
 	/*for (uint32_t i = 0; i < 64; ++i)
 	{
@@ -526,8 +456,6 @@ int main(int argc, char* argv[])
 		data.triangles.emplace_back(v0, v1, v2, RandomUInt32(0, 2));
 	}
 	data.bounding_volume_hierarchy.Build(data.triangles);*/
-
-	data.point_lights.emplace_back(Vec3(0.0f, 2.0f, 0.0f), Vec3(1.0f), 200.0f);
 
 	std::chrono::high_resolution_clock::time_point curr_time = std::chrono::high_resolution_clock::now(),
 		last_time = std::chrono::high_resolution_clock::now();
@@ -575,6 +503,11 @@ int main(int argc, char* argv[])
 		ImGui::EndFrame();
 
 		last_time = curr_time;
+	}
+
+	for (auto& prim : data.prims)
+	{
+		delete prim.prim_ptr;
 	}
 
 	ThreadPool::Exit();

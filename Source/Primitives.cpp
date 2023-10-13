@@ -2,16 +2,79 @@
 
 bool IntersectAABB(const AABB& aabb, Ray& ray)
 {
-	float tx1 = (aabb.pmin.x - ray.origin.x) / ray.direction.x, tx2 = (aabb.pmax.x - ray.origin.x) / ray.direction.x;
+	float tmin = (aabb.pmin.x - ray.origin.x) / ray.direction.x;
+	float tmax = (aabb.pmax.x - ray.origin.x) / ray.direction.x;
+
+	if (tmin > tmax)
+	{
+		std::swap(tmin, tmax);
+	}
+
+	float tymin = (aabb.pmin.y - ray.origin.y) / ray.direction.y;
+	float tymax = (aabb.pmax.y - ray.origin.y) / ray.direction.y;
+
+	if (tymin > tymax)
+	{
+		std::swap(tymin, tymax);
+	}
+
+	if ((tmin > tymax) || (tymin > tmax))
+	{
+		return false;
+	}
+
+	if (tymin > tmin)
+	{
+		tmin = tymin;
+	}
+
+	if (tymax < tmax)
+	{
+		tmax = tymax;
+	}
+
+	float tzmin = (aabb.pmin.z - ray.origin.z) / ray.direction.z;
+	float tzmax = (aabb.pmax.z - ray.origin.z) / ray.direction.z;
+
+	if (tzmin > tzmax)
+	{
+		std::swap(tzmin, tzmax);
+	}
+
+	if ((tmin > tzmax) || (tzmin > tmax))
+	{
+		return false;
+	}
+
+	if (tzmin > tmin)
+	{
+		tmin = tzmin;
+	}
+
+	if (tzmax < tmax)
+	{
+		tmax = tzmax;
+	}
+
+	if (tmin >= 0.0f)
+	{
+		ray.t = tmin;
+		return true;
+	}
+
+	return false;
+
+	/*float tx1 = (aabb.pmin.x - ray.origin.x) / ray.direction.x, tx2 = (aabb.pmax.x - ray.origin.x) / ray.direction.x;
 	float tmin = std::min(tx1, tx2), tmax = std::max(tx1, tx2);
 	float ty1 = (aabb.pmin.y - ray.origin.y) / ray.direction.y, ty2 = (aabb.pmax.y - ray.origin.y) / ray.direction.y;
 	tmin = std::max(tmin, std::min(ty1, ty2)), tmax = std::min(tmax, std::max(ty1, ty2));
 	float tz1 = (aabb.pmin.z - ray.origin.z) / ray.direction.z, tz2 = (aabb.pmax.z - ray.origin.z) / ray.direction.z;
 	tmin = std::max(tmin, std::min(tz1, tz2)), tmax = std::min(tmax, std::max(tz1, tz2));
-	return tmax >= tmin && tmin < ray.t && tmax > 0.0f;
+
+	return tmax >= tmin && tmin < ray.t && tmax > 0.0f;*/
 }
 
-void IntersectPlane(const Plane& plane, Ray& ray)
+bool IntersectPlane(const Plane& plane, Ray& ray)
 {
 	// Plane: P * N + d = 0
 	// Ray: P(t) = O + tD
@@ -26,14 +89,14 @@ void IntersectPlane(const Plane& plane, Ray& ray)
 		if (t > 0.0f && t < ray.t)
 		{
 			ray.t = t;
-			ray.payload.object_type = PrimitiveType_Plane;
-			ray.payload.object_ptr = (void*)&plane;
-			ray.payload.mat_index = plane.mat_index;
+			return true;
 		}
 	}
+
+	return false;
 }
 
-void IntersectSphere(const Sphere& sphere, Ray& ray)
+bool IntersectSphere(const Sphere& sphere, Ray& ray)
 {
 	float t0, t1;
 #if INTERSECTION_SPHERE_GEOMETRIC
@@ -43,14 +106,14 @@ void IntersectSphere(const Sphere& sphere, Ray& ray)
 
 	if (tca < 0.0f)
 	{
-		return;
+		return false;
 	}
 
 	float d2 = Vec3Dot(L, L) - tca * tca;
 
 	if (d2 > sphere.radius_sq)
 	{
-		return;
+		return false;
 	}
 
 	float thc = std::sqrtf(sphere.radius_sq - d2);
@@ -64,7 +127,7 @@ void IntersectSphere(const Sphere& sphere, Ray& ray)
 
 	if (!SolveQuadratic(a, b, c, t0, t1))
 	{
-		return;
+		return false;
 	}
 #endif
 	if (t0 > t1)
@@ -77,17 +140,17 @@ void IntersectSphere(const Sphere& sphere, Ray& ray)
 
 		if (t0 < 0.0f)
 		{
-			return;
+			return false;
 		}
 	}
 
 	if (t0 < ray.t)
 	{
 		ray.t = t0;
-		ray.payload.object_type = PrimitiveType_Sphere;
-		ray.payload.object_ptr = (void*)&sphere;
-		ray.payload.mat_index = sphere.mat_index;
+		return true;
 	}
+
+	return false;
 }
 
 static Vec3 GetTriangleNormal(const Triangle& triangle)
@@ -97,7 +160,7 @@ static Vec3 GetTriangleNormal(const Triangle& triangle)
 	return Vec3Normalize(Vec3Cross(v0v1, v0v2));
 }
 
-void IntersectTriangle(const Triangle& triangle, Ray& ray)
+bool IntersectTriangle(const Triangle& triangle, Ray& ray)
 {
 	float t = 0.0f;
 #if INTERSECTION_TRIANGLE_INSIDE_OUTSIDE_TEST
@@ -110,7 +173,7 @@ void IntersectTriangle(const Triangle& triangle, Ray& ray)
 
 	if (std::fabs(NoD) < 0.001f)
 	{
-		return;
+		return false;
 	}
 
 	float d = Vec3Dot(-N, triangle.v0);
@@ -118,7 +181,7 @@ void IntersectTriangle(const Triangle& triangle, Ray& ray)
 
 	if (t < 0.0f)
 	{
-		return;
+		return false;
 	}
 
 	Vec3 P = ray.origin + t * ray.direction;
@@ -129,7 +192,7 @@ void IntersectTriangle(const Triangle& triangle, Ray& ray)
 
 	if (Vec3Dot(N, C) < 0.0f)
 	{
-		return;
+		return false;
 	}
 
 	Vec3 edge1 = triangle.v2 - triangle.v1;
@@ -138,7 +201,7 @@ void IntersectTriangle(const Triangle& triangle, Ray& ray)
 
 	if (Vec3Dot(N, C) < 0.0f)
 	{
-		return;
+		return false;
 	}
 
 	Vec3 edge2 = triangle.v0 - triangle.v2;
@@ -147,7 +210,7 @@ void IntersectTriangle(const Triangle& triangle, Ray& ray)
 
 	if (Vec3Dot(N, C) < 0.0f)
 	{
-		return;
+		return false;
 	}
 #elif INTERSECTION_TRIANGLE_MOELLER_TRUMBORE
 	Vec3 edge1 = triangle.v1 - triangle.v0;
@@ -158,7 +221,7 @@ void IntersectTriangle(const Triangle& triangle, Ray& ray)
 
 	if (a > -0.001f && a < 0.001f)
 	{
-		return;
+		return false;
 	}
 
 	float f = 1.0f / a;
@@ -167,7 +230,7 @@ void IntersectTriangle(const Triangle& triangle, Ray& ray)
 
 	if (u < 0.0f || u > 1.0f)
 	{
-		return;
+		return false;
 	}
 
 	Vec3 Q = Vec3Cross(S, edge1);
@@ -175,24 +238,24 @@ void IntersectTriangle(const Triangle& triangle, Ray& ray)
 
 	if (v < 0.0f || u + v > 1.0f)
 	{
-		return;
+		return false;
 	}
 
 	t = f * Vec3Dot(edge2, Q);
 
 	if (t < 0.001f)
 	{
-		return;
+		return false;
 	}
 #endif
 
 	if (t < ray.t)
 	{
 		ray.t = t;
-		ray.payload.object_type = PrimitiveType_Triangle;
-		ray.payload.object_ptr = (void*)&triangle;
-		ray.payload.mat_index = triangle.mat_index;
+		return true;
 	}
+
+	return false;
 }
 
 Vec3 GetObjectSurfaceNormalAtPoint(PrimitiveType type, void* ptr, const Vec3& point)

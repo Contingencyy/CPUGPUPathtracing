@@ -104,6 +104,8 @@ struct Vec4
 		: x(_s), y(_s), z(_s), w(_s) {}
 	Vec4(float _x, float _y, float _z, float _w)
 		: x(_x), y(_y), z(_z), w(_w) {}
+	Vec4(const Vec3& xyz, float w)
+		: x(xyz.x), y(xyz.y), z(xyz.z), w(w) {}
 	
 	union
 	{
