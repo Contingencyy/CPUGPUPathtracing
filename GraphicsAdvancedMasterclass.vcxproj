@@ -157,6 +157,7 @@
     <ClInclude Include="Include\Primitives.h" />
     <ClInclude Include="Include\Random.h" />
     <ClInclude Include="Include\ThreadPool.h" />
+    <ClInclude Include="Include\Util.h" />
     <ClInclude Include="Include\Window.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

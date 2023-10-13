@@ -95,5 +95,8 @@
     <ClInclude Include="Include\Random.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="Include\Util.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>

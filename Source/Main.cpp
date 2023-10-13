@@ -6,6 +6,7 @@
 #include "Primitives.h"
 #include "Random.h"
 #include "BVH.h"
+#include "Util.h"
 
 #define WIN32_LEAN_AND_MEAN
 #include <Windows.h>
@@ -103,15 +104,30 @@ public:
 		UpdateScreenPlane();
 	}
 
-	void Update(float dt)
+	bool Update(float dt)
 	{
 		//Vec2 mouse_move = Input::GetMouseMoveRel();
+		bool view_changed = false;
 
-		m_pos.x -= Input::GetInputAxis1D(Input::KeyCode_A, Input::KeyCode_D) * dt * m_speed;
-		m_pos.y += Input::GetInputAxis1D(Input::KeyCode_Space, Input::KeyCode_LeftShift) * dt * m_speed;
-		m_pos.z -= Input::GetInputAxis1D(Input::KeyCode_W, Input::KeyCode_S) * dt * m_speed;
+		float right_velocity = Input::GetInputAxis1D(Input::KeyCode_A, Input::KeyCode_D) * dt * m_speed;
+		float up_velocity = Input::GetInputAxis1D(Input::KeyCode_Space, Input::KeyCode_LeftShift) * dt * m_speed;
+		float forward_velocity = Input::GetInputAxis1D(Input::KeyCode_W, Input::KeyCode_S) * dt * m_speed;
 
-		UpdateScreenPlane();
+		m_pos.x -= right_velocity;
+		m_pos.y += up_velocity;
+		m_pos.z -= forward_velocity;
+
+		if (right_velocity != 0.0f || up_velocity != 0.0f || forward_velocity != 0.0f)
+		{
+			view_changed = true;
+		}
+
+		if (view_changed)
+		{
+			UpdateScreenPlane();
+		}
+
+		return view_changed;
 	}
 
 	Ray GetRay(float u, float v)
@@ -177,6 +193,9 @@ struct Data
 {
 	// Render data
 	std::vector<uint32_t> pixels;
+	std::vector<Vec4> accumulator;
+	uint32_t num_accumulated = 0;
+
 	std::vector<Material> materials;
 	std::vector<Plane> planes;
 	std::vector<Sphere> spheres;
@@ -205,12 +224,27 @@ void Update(float dt)
 		Window::SetMouseCapture(false);
 	}
 
-	data.camera.Update(dt);
+	bool view_changed = data.camera.Update(dt);
+	if (view_changed)
+	{
+		data.num_accumulated = 0;
+		std::fill(data.accumulator.begin(), data.accumulator.end(), Vec4(0.0f));
+	}
 }
 
 void IntersectScene(Ray& ray)
 {
-	data.bounding_volume_hierarchy.Traverse(ray);
+	//data.bounding_volume_hierarchy.Traverse(ray);
+
+	for (auto& plane : data.planes)
+	{
+		IntersectPlane(plane, ray);
+	}
+
+	for (auto& sphere : data.spheres)
+	{
+		IntersectSphere(sphere, ray);
+	}
 }
 
 bool TraceShadowRay(Ray& shadow_ray)
@@ -288,13 +322,20 @@ Vec4 TraceRay(Ray& ray, uint8_t depth)
 	Material& surface_material = data.materials[ray.payload.mat_index];
 
 	Vec3 illumination = GetDirectIlluminationAtPoint(surface_point, surface_normal);
-	Vec3 ambient(0.2f);
 
-	Vec3 diffuse = surface_material.albedo.xyz * INV_PI * (illumination + ambient) * (1.0f - surface_material.specular - surface_material.refractivity);
+	// Diffuse reflection
+	Vec3 diffuse_dir = Util::UniformHemisphereSample(surface_normal);
+	Ray diffuse_ray = { .origin = surface_point + diffuse_dir * RAY_REFLECT_NUDGE_MULTIPLIER, .direction = diffuse_dir };
+	Vec4 diffuse_color = TraceRay(diffuse_ray, next_depth);
+	Vec3 diffuse_brdf = surface_material.albedo.xyz * INV_PI;
+	float cosi = Vec3Dot(diffuse_dir, surface_normal);
+	Vec3 diffuse = 2.0f * PI * diffuse_brdf * cosi * diffuse_color.xyz;
+
+	//Vec3 diffuse = surface_material.albedo.xyz * INV_PI * (illumination + ambient) * (1.0f - surface_material.specular - surface_material.refractivity);
 	Vec3 specular(0.0f);
 	Vec3 refract(0.0f);
 
-	if (surface_material.specular > 0.0f)
+	/*if (surface_material.specular > 0.0f)
 	{
 		Vec3 reflect_dir = Reflect(ray.direction, surface_normal);
 		Ray reflect_ray = { .origin = surface_point + reflect_dir * RAY_REFLECT_NUDGE_MULTIPLIER, .direction = reflect_dir };
@@ -351,7 +392,7 @@ Vec4 TraceRay(Ray& ray, uint8_t depth)
 
 		Vec4 reflect_color = TraceRay(reflect_ray, next_depth);
 		specular += surface_material.albedo.xyz * Fr * reflect_color.xyz;
-	}
+	}*/
 
 	final_color.xyz = diffuse + specular + refract;
 
@@ -403,6 +444,8 @@ void Render()
 	UVec2 job_size(16, 16);
 	Vec2 inv_framebuffer_size(1.0f / framebuffer_size.x, 1.0f / framebuffer_size.y);
 
+	data.num_accumulated++;
+
 	auto trace_ray_thread_job = [&job_size, &framebuffer_size, &inv_framebuffer_size](ThreadPool::JobDispatchArgs args) {
 		uint32_t first_x = (args.job_index * job_size.x) % framebuffer_size.x;
 		uint32_t first_y = ((args.job_index * job_size.x) / framebuffer_size.x) * job_size.y;
@@ -417,7 +460,15 @@ void Render()
 				Ray ray = data.camera.GetRay(u, v);
 				Vec4 final_color = TraceRay(ray, 0);
 
-				data.pixels[y * framebuffer_size.x + x] = Vec4ToUint(final_color);
+				if (data.debug_view == DebugRenderView_None)
+				{
+					data.accumulator[y * framebuffer_size.x + x] += final_color;
+					data.pixels[y * framebuffer_size.x + x] = Vec4ToUint(data.accumulator[y * framebuffer_size.x + x] / data.num_accumulated);
+				}
+				else
+				{
+					data.pixels[y * framebuffer_size.x + x] = Vec4ToUint(final_color);
+				}
 			}
 		}
 	};
@@ -447,26 +498,25 @@ int main(int argc, char* argv[])
 
 	ThreadPool::Init();
 
-	data.camera = Camera(Vec3(0.0f), Vec3(0.0f, 0.0f, -1.0f), 60.0f, (float)framebuffer_size.x / framebuffer_size.y);
 	data.pixels.resize(framebuffer_size.x * framebuffer_size.y);
+	data.accumulator.resize(framebuffer_size.x * framebuffer_size.y);
+	data.camera = Camera(Vec3(0.0f), Vec3(0.0f, 0.0f, -1.0f), 60.0f, (float)framebuffer_size.x / framebuffer_size.y);
 
-	data.materials.emplace_back(Vec4(0.3f, 0.3f, 0.3f, 1.0f), 0.0f, 0.0f, Vec3(0.0f), 1.0f);
-	data.materials.emplace_back(Vec4(0.9f, 0.3f, 0.3f, 1.0f), 0.0f, 0.0f, Vec3(0.0f), 1.0f);
-	data.materials.emplace_back(Vec4(0.3f, 0.3f, 0.9f, 1.0f), 0.0f, 0.0f, Vec3(0.0f), 1.0f);
-	data.materials.emplace_back(Vec4(0.2f, 0.2f, 0.2f, 1.0f), 0.0f, 0.8f, Vec3(0.9f, 0.2f, 0.3f), 1.517f);
+	data.materials.emplace_back(Vec4(0.6f, 0.1f, 0.1f, 1.0f), 0.0f, 0.0f, Vec3(0.0f), 1.0f);
+	data.materials.emplace_back(Vec4(0.1f, 0.1f, 0.6f, 1.0f), 0.0f, 0.0f, Vec3(0.0f), 1.0f);
+	data.materials.emplace_back(Vec4(0.6f, 0.6f, 0.6f, 1.0f), 0.0f, 0.0f, Vec3(0.0f), 1.0f);
+	//data.materials.emplace_back(Vec4(0.2f, 0.2f, 0.2f, 1.0f), 0.0f, 0.8f, Vec3(0.9f, 0.2f, 0.3f), 1.517f);
 
-	data.planes.emplace_back(Vec3(0.0f, 1.0f, 0.0f), Vec3(0.0f, -5.0f, 0.0f), 0);
-	/*data.planes.emplace_back(Vec3(0.0f, -1.0f, 0.0f), Vec3(0.0f, 5.0f, 0.0f), 0);
-	data.planes.emplace_back(Vec3(1.0f, 0.0f, 0.0f), Vec3(-5.0f, 0.0f, 0.0f), 1);
-	data.planes.emplace_back(Vec3(-1.0f, 0.0f, 0.0f), Vec3(5.0f, 0.0f, 0.0f), 1);
-	data.planes.emplace_back(Vec3(0.0f, 0.0f, 1.0f), Vec3(0.0f, 0.0f, -5.0f), 2);
-	data.planes.emplace_back(Vec3(0.0f, 0.0f, -1.0f), Vec3(0.0f, 0.0f, 5.0f), 2);
+	data.planes.emplace_back(Vec3(0.0f, 1.0f, 0.0f), Vec3(0.0f, 0.0f, 0.0f), 2);
 
-	data.spheres.emplace_back(Vec3(-2.0f, 0.0f, -2.0f), 1.0f * 1.0f, 3);
-	data.spheres.emplace_back(Vec3(0.0f, 0.0f, -2.0f), 0.5f * 0.5f, 3);
-	data.spheres.emplace_back(Vec3(2.0f, 0.0f, -2.0f), 0.25f * 0.25f, 3);*/
+	data.spheres.emplace_back(Vec3(0.0f, 1.5f, -2.0f), 1.0f * 1.0f, 0);
+	data.spheres.emplace_back(Vec3(2.5f, 1.5f, -3.0f), 1.0f * 1.0f, 2);
+	data.spheres.emplace_back(Vec3(5.0f, 1.5f, -4.0f), 1.0f * 1.0f, 1);
+	data.spheres.emplace_back(Vec3(0.0f, -1.5f, -2.0f), 2.0f * 2.0f, 2);
+	data.spheres.emplace_back(Vec3(2.5f, -1.5f, -3.0f), 2.0f * 2.0f, 2);
+	data.spheres.emplace_back(Vec3(5.0f, -1.5f, -4.0f), 2.0f * 2.0f, 2);
 
-	for (uint32_t i = 0; i < 64; ++i)
+	/*for (uint32_t i = 0; i < 64; ++i)
 	{
 		Vec3 v0 = RandomVec3(-4.0f, 4.0f);
 		Vec3 v1 = RandomVec3();
@@ -475,10 +525,9 @@ int main(int argc, char* argv[])
 		v2 = v0 + v2;
 		data.triangles.emplace_back(v0, v1, v2, RandomUInt32(0, 2));
 	}
-	//data.triangles.emplace_back(Vec3(0.0f, 2.0f, -1.0f), Vec3(2.0f, 0.0f, -1.0f), Vec3(-2.0f, 0.0f, -1.0f), 0);
-	data.bounding_volume_hierarchy.Build(data.triangles);
+	data.bounding_volume_hierarchy.Build(data.triangles);*/
 
-	data.point_lights.emplace_back(Vec3(0.0f, 4.5f, 0.0f), Vec3(1.0f), 200.0f);
+	data.point_lights.emplace_back(Vec3(0.0f, 2.0f, 0.0f), Vec3(1.0f), 200.0f);
 
 	std::chrono::high_resolution_clock::time_point curr_time = std::chrono::high_resolution_clock::now(),
 		last_time = std::chrono::high_resolution_clock::now();
