@@ -7,6 +7,7 @@
 #include "Random.h"
 #include "BVH.h"
 #include "Util.h"
+#include "GLTFLoader.h"
 
 #define WIN32_LEAN_AND_MEAN
 #include <Windows.h>
@@ -75,7 +76,7 @@
 
 */
 
-static constexpr uint8_t MAX_RAY_DEPTH = 5;
+static constexpr uint8_t MAX_RAY_DEPTH = 4;
 static constexpr float RAY_REFLECT_NUDGE_MULTIPLIER = 0.001f;
 
 struct Material
@@ -186,29 +187,26 @@ std::vector<const char*> debug_render_view_names =
 	{ "None", "Diffuse", "Specular", "Refract", "Surface normal", "Surface albedo", "Depth", "View direction", "BVH Depth" }
 };
 
-struct Primitive
-{
-	PrimitiveType type = PrimitiveType_NumTypes;
-	void* prim_ptr = nullptr;
-	uint32_t mat_index = 0;
-};
-
 struct Data
 {
 	// Render data
 	std::vector<uint32_t> pixels;
 	std::vector<Vec4> accumulator;
 	uint32_t num_accumulated = 0;
-
-	std::vector<Primitive> prims;
-	std::vector<Material> materials;
+	bool pause_rendering = false;
 
 	BVH bounding_volume_hierarchy;
 
+	std::vector<Material> materials;
 	Camera camera;
-
 	DebugRenderView debug_view = DebugRenderView_None;
 } static data;
+
+static void ResetAccumulator()
+{
+	data.num_accumulated = 0;
+	std::fill(data.accumulator.begin(), data.accumulator.end(), Vec4(0.0f));
+}
 
 void Update(float dt)
 {
@@ -228,38 +226,23 @@ void Update(float dt)
 	bool view_changed = data.camera.Update(dt);
 	if (view_changed)
 	{
-		data.num_accumulated = 0;
-		std::fill(data.accumulator.begin(), data.accumulator.end(), Vec4(0.0f));
+		ResetAccumulator();
 	}
 }
 
 void IntersectScene(Ray& ray)
 {
-	//data.bounding_volume_hierarchy.Traverse(ray);
+	data.bounding_volume_hierarchy.Traverse(ray);
+}
 
-	for (uint32_t object_index = 0; object_index < data.prims.size(); ++object_index)
+Vec3 GetObjectSurfaceNormalAtPoint(PrimitiveType type, void* prim, const Vec3& point)
+{
+	switch (type)
 	{
-		Primitive& prim = data.prims[object_index];
-		bool intersected = false;
-
-		switch (prim.type)
-		{
-		case PrimitiveType_Plane:
-			intersected = IntersectPlane(*(Plane*)prim.prim_ptr, ray);
-			break;
-		case PrimitiveType_Sphere:
-			intersected = IntersectSphere(*(Sphere*)prim.prim_ptr, ray);
-			break;
-		case PrimitiveType_Triangle:
-			intersected = IntersectTriangle(*(Triangle*)prim.prim_ptr, ray);
-			break;
-		case PrimitiveType_AABB:
-			intersected = IntersectAABB(*(AABB*)prim.prim_ptr, ray);
-			break;
-		}
-
-		if (intersected)
-			ray.payload.object_index = object_index;
+	case PrimitiveType_Triangle:
+		return GetTriangleNormalAtPoint(*(Triangle*)prim, point);
+	case PrimitiveType_Sphere:
+		return GetSphereNormalAtPoint(*(Sphere*)prim, point);
 	}
 }
 
@@ -271,49 +254,52 @@ Vec4 TraceRay(Ray& ray, uint8_t depth)
 
 	IntersectScene(ray);
 
+	if (depth == 0 && data.debug_view == DebugRenderView_BVHDepth)
+	{
+		// Lerp from white to dark red based on bvh depth
+		Vec4 bvh_depth_color = Vec4(1.0f);
+		bvh_depth_color.xyz = Vec3Lerp(Vec3(0.0f, 1.0f, 0.0f), Vec3(1.0f, 0.0f, 0.0f), std::min(1.0f, (float)ray.payload.bvh_depth / data.bounding_volume_hierarchy.GetMaxDepth()));
+		return bvh_depth_color;
+	}
+
 	// We have not hit anything, so we return black (or sky color)
-	if (ray.payload.object_index == ~0u)
+	if (ray.payload.tri_idx == ~0u)
 		return Vec4(0.0f);
 
 	// If we have hit a light source, we return its emissive color
-	const Primitive& prim = data.prims[ray.payload.object_index];
-	Material& surface_material = data.materials[prim.mat_index];
+	const Triangle& tri = data.bounding_volume_hierarchy.GetTriangle(ray.payload.tri_idx);
+	Material& surface_material = data.materials[0];
 
 	if (surface_material.is_light)
 	{
 		return Vec4(surface_material.emissive, 1.0f);
 	}
 
-	//if (depth == 0 && data.debug_view == DebugRenderView_BVHDepth)
-	//{
-	//	// Lerp from white to dark red based on bvh depth
-	//	Vec4 bvh_depth_color = Vec4(1.0f);
-	//	bvh_depth_color.xyz = Vec3Lerp(Vec3(1.0f), Vec3(1.0f, 0.0f, 0.0f), std::min(1.0f, (float)ray.payload.bvh_depth / 20.0f));
-	//	return bvh_depth_color;
-	//}
-
 	Vec4 final_color(0.0f, 0.0f, 0.0f, 1.0f);
 
 	Vec3 surface_point = ray.origin + ray.t * ray.direction;
-	Vec3 surface_normal = GetObjectSurfaceNormalAtPoint(prim.type, prim.prim_ptr, surface_point);
+	Vec3 surface_normal = GetTriangleNormalAtPoint(tri, surface_point);
 
 	Vec3 diffuse(0.0f);
 	Vec3 specular(0.0f);
 	Vec3 refract(0.0f);
 
+	// ---------------------------------------------------------------------------------------------------------
 	// Diffuse reflection
-	{
-		Vec3 diffuse_dir = Util::UniformHemisphereSample(surface_normal);
-		Ray diffuse_ray = { .origin = surface_point + diffuse_dir * RAY_REFLECT_NUDGE_MULTIPLIER, .direction = diffuse_dir };
-		float cosi = Vec3Dot(diffuse_dir, surface_normal);
-		Vec4 irradiance = cosi * TraceRay(diffuse_ray, depth + 1);
 
-		if (diffuse_ray.payload.object_index != ~0u)
-		{
-			Vec3 diffuse_brdf = surface_material.albedo * INV_PI;
-			diffuse = 2.0f * PI * diffuse_brdf * irradiance.xyz;
-		}
+	Vec3 diffuse_dir = Util::UniformHemisphereSample(surface_normal);
+	Ray diffuse_ray = { .origin = surface_point + diffuse_dir * RAY_REFLECT_NUDGE_MULTIPLIER, .direction = diffuse_dir };
+	float cosi = Vec3Dot(diffuse_dir, surface_normal);
+	Vec4 irradiance = cosi * TraceRay(diffuse_ray, depth + 1);
+
+	if (diffuse_ray.payload.tri_idx != ~0u)
+	{
+		Vec3 diffuse_brdf = surface_material.albedo * INV_PI;
+		diffuse = 2.0f * PI * diffuse_brdf * irradiance.xyz;
 	}
+
+	// ---------------------------------------------------------------------------------------------------------
+	// Final color and debug render views
 
 	final_color.xyz = diffuse + specular + refract;
 
@@ -377,6 +363,11 @@ void Render()
 				Ray ray = data.camera.GetRay(u, v);
 				Vec4 final_color = TraceRay(ray, 0);
 
+				if (data.pause_rendering)
+				{
+					return;
+				}
+
 				if (data.debug_view == DebugRenderView_None)
 				{
 					data.accumulator[y * framebuffer_size.x + x] += final_color;
@@ -419,43 +410,15 @@ int main(int argc, char* argv[])
 	data.accumulator.resize(framebuffer_size.x * framebuffer_size.y);
 	data.camera = Camera(Vec3(0.0f), Vec3(0.0f, 0.0f, -1.0f), 60.0f, (float)framebuffer_size.x / framebuffer_size.y);
 
-	data.materials.emplace_back(Vec3(0.4f, 0.1f, 0.1f), Vec3(0.0f), 0.0f, 0.0f, Vec3(0.0f), 1.0f, false);
-	data.materials.emplace_back(Vec3(0.1f, 0.1f, 0.4f), Vec3(0.0f), 0.0f, 0.0f, Vec3(0.0f), 1.0f, false);
-	data.materials.emplace_back(Vec3(0.4f), Vec3(0.0f), 0.0f, 0.0f, Vec3(0.0f), 1.0f, false);
-	data.materials.emplace_back(Vec3(1.0f), Vec3(50.0f), 0.0f, 0.0f, Vec3(0.0f), 1.0f, true);
+	//data.materials.emplace_back(Vec3(0.4f, 0.1f, 0.1f), Vec3(0.0f), 0.0f, 0.0f, Vec3(0.0f), 1.0f, false);
+	//data.materials.emplace_back(Vec3(0.1f, 0.1f, 0.4f), Vec3(0.0f), 0.0f, 0.0f, Vec3(0.0f), 1.0f, false);
+	//data.materials.emplace_back(Vec3(0.4f), Vec3(0.0f), 0.0f, 0.0f, Vec3(0.0f), 1.0f, false);
+	data.materials.emplace_back(Vec3(1.0f), Vec3(1.0f, 0.95f, 0.8f), 0.0f, 0.0f, Vec3(0.0f), 1.0f, true);
 	//data.materials.emplace_back(Vec4(0.2f, 0.2f, 0.2f, 1.0f), 0.0f, 0.8f, Vec3(0.9f, 0.2f, 0.3f), 1.517f);
 
-	Plane* plane = new Plane{ Vec3(0.0f, 1.0f, 0.0f), Vec3(0.0f, 0.0f, 0.0f) };
-	data.prims.emplace_back(PrimitiveType_Plane, plane, 2);
-
-	Sphere* sphere1 = new Sphere{ Vec3(0.0f, 1.5f, -2.0f), 1.0f * 1.0f };
-	Sphere* sphere2 = new Sphere{ Vec3(2.5f, 1.5f, -3.0f), 1.0f * 1.0f };
-	Sphere* sphere3 = new Sphere{ Vec3(5.0f, 1.5f, -4.0f), 1.0f * 1.0f };
-	Sphere* sphere4 = new Sphere{ Vec3(0.0f, -1.5f, -2.0f), 2.0f * 2.0f };
-	Sphere* sphere5 = new Sphere{ Vec3(2.5f, -1.5f, -3.0f), 2.0f * 2.0f };
-	Sphere* sphere6 = new Sphere{ Vec3(5.0f, -1.5f, -4.0f), 2.0f * 2.0f };
-	data.prims.emplace_back(PrimitiveType_Sphere, sphere1, 0);
-	data.prims.emplace_back(PrimitiveType_Sphere, sphere2, 2);
-	data.prims.emplace_back(PrimitiveType_Sphere, sphere3, 1);
-	data.prims.emplace_back(PrimitiveType_Sphere, sphere4, 2);
-	data.prims.emplace_back(PrimitiveType_Sphere, sphere5, 2);
-	data.prims.emplace_back(PrimitiveType_Sphere, sphere6, 2);
-
-	Triangle* triangle1 = new Triangle{ Vec3(5.0f, 10.0f, -10.0f), Vec3(5.0f, 10.0f, 0.0f), Vec3(20.0f, 10.0f, 0.0f) };
-	Triangle* triangle2 = new Triangle{ Vec3(20.0f, 10.0f, 0.0f), Vec3(20.0f, 10.0f, -10.0f), Vec3(5.0f, 10.0f, -10.0f) };
-	data.prims.emplace_back(PrimitiveType_Triangle, triangle1, 3);
-	data.prims.emplace_back(PrimitiveType_Triangle, triangle2, 3);
-
-	/*for (uint32_t i = 0; i < 64; ++i)
-	{
-		Vec3 v0 = RandomVec3(-4.0f, 4.0f);
-		Vec3 v1 = RandomVec3();
-		Vec3 v2 = RandomVec3();
-		v1 = v0 + v1;
-		v2 = v0 + v2;
-		data.triangles.emplace_back(v0, v1, v2, RandomUInt32(0, 2));
-	}
-	data.bounding_volume_hierarchy.Build(data.triangles);*/
+	// Load mesh
+	GLTFLoader::Mesh dragon_mesh = GLTFLoader::Load("Assets/Models/Dragon/DragonAttenuation.gltf");
+	data.bounding_volume_hierarchy.Build(dragon_mesh.vertices, dragon_mesh.indices);
 
 	std::chrono::high_resolution_clock::time_point curr_time = std::chrono::high_resolution_clock::now(),
 		last_time = std::chrono::high_resolution_clock::now();
@@ -476,6 +439,10 @@ int main(int argc, char* argv[])
 
 		ImGui::Begin("General");
 		ImGui::Text("Accumulated frames: %u", data.num_accumulated);
+		if (ImGui::Checkbox("Pause rendering", &data.pause_rendering))
+		{
+			ResetAccumulator();
+		}
 		ImGui::Text("Frame time (CPU): %.3f ms", delta_time.count() * 1000.0f);
 		if (ImGui::BeginCombo("Debug render view", debug_render_view_names[data.debug_view]))
 		{
@@ -504,11 +471,6 @@ int main(int argc, char* argv[])
 		ImGui::EndFrame();
 
 		last_time = curr_time;
-	}
-
-	for (auto& prim : data.prims)
-	{
-		delete prim.prim_ptr;
 	}
 
 	ThreadPool::Exit();

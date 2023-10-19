@@ -2,76 +2,14 @@
 
 bool IntersectAABB(const AABB& aabb, Ray& ray)
 {
-	float tmin = (aabb.pmin.x - ray.origin.x) / ray.direction.x;
-	float tmax = (aabb.pmax.x - ray.origin.x) / ray.direction.x;
-
-	if (tmin > tmax)
-	{
-		std::swap(tmin, tmax);
-	}
-
-	float tymin = (aabb.pmin.y - ray.origin.y) / ray.direction.y;
-	float tymax = (aabb.pmax.y - ray.origin.y) / ray.direction.y;
-
-	if (tymin > tymax)
-	{
-		std::swap(tymin, tymax);
-	}
-
-	if ((tmin > tymax) || (tymin > tmax))
-	{
-		return false;
-	}
-
-	if (tymin > tmin)
-	{
-		tmin = tymin;
-	}
-
-	if (tymax < tmax)
-	{
-		tmax = tymax;
-	}
-
-	float tzmin = (aabb.pmin.z - ray.origin.z) / ray.direction.z;
-	float tzmax = (aabb.pmax.z - ray.origin.z) / ray.direction.z;
-
-	if (tzmin > tzmax)
-	{
-		std::swap(tzmin, tzmax);
-	}
-
-	if ((tmin > tzmax) || (tzmin > tmax))
-	{
-		return false;
-	}
-
-	if (tzmin > tmin)
-	{
-		tmin = tzmin;
-	}
-
-	if (tzmax < tmax)
-	{
-		tmax = tzmax;
-	}
-
-	if (tmin >= 0.0f)
-	{
-		ray.t = tmin;
-		return true;
-	}
-
-	return false;
-
-	/*float tx1 = (aabb.pmin.x - ray.origin.x) / ray.direction.x, tx2 = (aabb.pmax.x - ray.origin.x) / ray.direction.x;
+	float tx1 = (aabb.pmin.x - ray.origin.x) / ray.direction.x, tx2 = (aabb.pmax.x - ray.origin.x) / ray.direction.x;
 	float tmin = std::min(tx1, tx2), tmax = std::max(tx1, tx2);
 	float ty1 = (aabb.pmin.y - ray.origin.y) / ray.direction.y, ty2 = (aabb.pmax.y - ray.origin.y) / ray.direction.y;
 	tmin = std::max(tmin, std::min(ty1, ty2)), tmax = std::min(tmax, std::max(ty1, ty2));
 	float tz1 = (aabb.pmin.z - ray.origin.z) / ray.direction.z, tz2 = (aabb.pmax.z - ray.origin.z) / ray.direction.z;
 	tmin = std::max(tmin, std::min(tz1, tz2)), tmax = std::min(tmax, std::max(tz1, tz2));
 
-	return tmax >= tmin && tmin < ray.t && tmax > 0.0f;*/
+	return tmax >= tmin && tmin < ray.t && tmax > 0.0f;
 }
 
 bool IntersectPlane(const Plane& plane, Ray& ray)
@@ -153,11 +91,19 @@ bool IntersectSphere(const Sphere& sphere, Ray& ray)
 	return false;
 }
 
-static Vec3 GetTriangleNormal(const Triangle& triangle)
+Vec3 GetSphereNormalAtPoint(const Sphere& sphere, const Vec3& point)
 {
-	Vec3 v0v1 = triangle.v1 - triangle.v0;
-	Vec3 v0v2 = triangle.v2 - triangle.v0;
-	return Vec3Normalize(Vec3Cross(v0v1, v0v2));
+	return Vec3Normalize(point - sphere.center);
+}
+
+Vec3 GetSphereCentroid(const Sphere& sphere)
+{
+	return sphere.center;
+}
+
+AABB GetSphereBounds(const Sphere& sphere)
+{
+	return { .pmin = sphere.center - std::sqrtf(sphere.radius_sq), .pmax = sphere.center + std::sqrtf(sphere.radius_sq) };
 }
 
 bool IntersectTriangle(const Triangle& triangle, Ray& ray)
@@ -258,24 +204,27 @@ bool IntersectTriangle(const Triangle& triangle, Ray& ray)
 	return false;
 }
 
-Vec3 GetObjectSurfaceNormalAtPoint(PrimitiveType type, void* ptr, const Vec3& point)
+Vec3 GetTriangleNormalAtPoint(const Triangle& triangle, const Vec3& point)
 {
-	switch (type)
-	{
-	case PrimitiveType_Plane:
-	{
-		Plane* plane = reinterpret_cast<Plane*>(ptr);
-		return plane->normal;
-	} break;
-	case PrimitiveType_Sphere:
-	{
-		Sphere* sphere = reinterpret_cast<Sphere*>(ptr);
-		return Vec3Normalize(point - sphere->center);
-	} break;
-	case PrimitiveType_Triangle:
-	{
-		Triangle* triangle = reinterpret_cast<Triangle*>(ptr);
-		return GetTriangleNormal(*triangle);
-	} break;
-	}
+	Vec3 v0v1 = triangle.v1 - triangle.v0;
+	Vec3 v0v2 = triangle.v2 - triangle.v0;
+	return Vec3Normalize(Vec3Cross(v0v1, v0v2));
+}
+
+Vec3 GetTriangleCentroid(const Triangle& triangle)
+{
+	return (triangle.v0 + triangle.v1 + triangle.v2) * 0.3333f;
+}
+
+AABB GetTriangleBounds(const Triangle& triangle)
+{
+	AABB aabb = { triangle.v0, triangle.v0 };
+
+	aabb.pmin = Vec3Min(aabb.pmin, triangle.v1);
+	aabb.pmax = Vec3Max(aabb.pmax, triangle.v1);
+
+	aabb.pmin = Vec3Min(aabb.pmin, triangle.v2);
+	aabb.pmax = Vec3Max(aabb.pmax, triangle.v2);
+
+	return aabb;
 }

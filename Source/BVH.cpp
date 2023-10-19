@@ -2,23 +2,26 @@
 
 #include <algorithm>
 
-static inline Vec3 CalculateTriangleCentroid(const Triangle& triangle)
+void BVH::Build(const std::vector<Vertex>& vertices, const std::vector<uint32_t>& indices)
 {
-	return (triangle.v0 + triangle.v1 + triangle.v2) * 0.3333f;
-}
-
-void BVH::Build(const std::vector<Triangle>& triangles)
-{
-	m_triangles = triangles;
-	for (uint32_t i = 0; i < m_triangles.size(); ++i)
+	m_triangles.resize(indices.size() / 3);
+	for (uint32_t i = 0, curr_index = 0; i < m_triangles.size(); ++i, curr_index += 3)
 	{
-		m_triangles[i].centroid = CalculateTriangleCentroid(m_triangles[i]);
+		m_triangles[i].v0 = vertices[indices[curr_index]].pos;
+		m_triangles[i].v1 = vertices[indices[curr_index + 1]].pos;
+		m_triangles[i].v2 = vertices[indices[curr_index + 2]].pos;
 	}
 
 	m_tri_indices.resize(m_triangles.size());
 	for (uint32_t i = 0; i < m_tri_indices.size(); ++i)
 	{
 		m_tri_indices[i] = i;
+	}
+
+	m_centroids.resize(m_triangles.size());
+	for (uint32_t i = 0; i < m_triangles.size(); ++i)
+	{
+		m_centroids[i] = GetTriangleCentroid(m_triangles[i]);
 	}
 
 	m_nodes.resize(m_triangles.size() * 2 - 1);
@@ -28,12 +31,22 @@ void BVH::Build(const std::vector<Triangle>& triangles)
 	root_node.prim_count = (uint32_t)m_triangles.size();
 
 	CalculateNodeBounds(0);
-	Subdivide(0);
+	Subdivide(0, 0);
 }
 
 void BVH::Traverse(Ray& ray)
 {
 	Intersect(ray, 0);
+}
+
+Triangle BVH::GetTriangle(uint32_t index) const
+{
+	return m_triangles[m_tri_indices[index]];
+}
+
+uint32_t BVH::GetMaxDepth() const
+{
+	return m_max_depth;
 }
 
 void BVH::CalculateNodeBounds(uint32_t node_index)
@@ -44,21 +57,18 @@ void BVH::CalculateNodeBounds(uint32_t node_index)
 	for (uint32_t i = node.left_first; i < node.left_first + node.prim_count; ++i)
 	{
 		uint32_t tri_index = m_tri_indices[i];
-		Triangle& triangle = m_triangles[tri_index];
+		const Triangle& tri = m_triangles[tri_index];
 
-		node.bounds.pmin = Vec3Min(node.bounds.pmin, triangle.v0);
-		node.bounds.pmax = Vec3Max(node.bounds.pmax, triangle.v0);
-
-		node.bounds.pmin = Vec3Min(node.bounds.pmin, triangle.v1);
-		node.bounds.pmax = Vec3Max(node.bounds.pmax, triangle.v1);
-
-		node.bounds.pmin = Vec3Min(node.bounds.pmin, triangle.v2);
-		node.bounds.pmax = Vec3Max(node.bounds.pmax, triangle.v2);
+		AABB tri_bounds = GetTriangleBounds(tri);
+		node.bounds.pmin = Vec3Min(node.bounds.pmin, tri_bounds.pmin);
+		node.bounds.pmax = Vec3Max(node.bounds.pmax, tri_bounds.pmax);
 	}
 }
 
-void BVH::Subdivide(uint32_t node_index)
+void BVH::Subdivide(uint32_t node_index, uint32_t depth)
 {
+	m_max_depth = std::max(m_max_depth, depth);
+
 	BVHNode& node = m_nodes[node_index];
 	if (node.prim_count <= 2)
 		return;
@@ -78,7 +88,7 @@ void BVH::Subdivide(uint32_t node_index)
 
 	while (i <= j)
 	{
-		if (m_triangles[m_tri_indices[i]].centroid.xyz[axis] < split_pos)
+		if (m_centroids[m_tri_indices[i]].xyz[axis] < split_pos)
 		{
 			i++;
 		}
@@ -106,8 +116,8 @@ void BVH::Subdivide(uint32_t node_index)
 	CalculateNodeBounds(left_child_index);
 	CalculateNodeBounds(right_child_index);
 
-	Subdivide(left_child_index);
-	Subdivide(right_child_index);
+	Subdivide(left_child_index, depth + 1);
+	Subdivide(right_child_index, depth + 1);
 }
 
 void BVH::Intersect(Ray& ray, uint32_t node_index)
@@ -123,7 +133,13 @@ void BVH::Intersect(Ray& ray, uint32_t node_index)
 	{
 		for (uint32_t i = 0; i < node.prim_count; ++i)
 		{
-			IntersectTriangle(m_triangles[m_tri_indices[node.left_first + i]], ray);
+			const Triangle& tri = m_triangles[m_tri_indices[node.left_first + i]];
+			bool intersected = IntersectTriangle(tri, ray);
+
+			if (intersected)
+			{
+				ray.payload.tri_idx = m_tri_indices[node.left_first + i];
+			}
 		}
 	}
 	else

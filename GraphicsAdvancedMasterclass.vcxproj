@@ -138,6 +138,7 @@
     <ClCompile Include="Extern\imgui\imgui_widgets.cpp" />
     <ClCompile Include="Source\BVH.cpp" />
     <ClCompile Include="Source\DX12.cpp" />
+    <ClCompile Include="Source\GLTFLoader.cpp" />
     <ClCompile Include="Source\Input.cpp" />
     <ClCompile Include="Source\Main.cpp" />
     <ClCompile Include="Source\MathLib.cpp" />
@@ -152,6 +153,7 @@
     <ClInclude Include="Extern\imgui\imgui_internal.h" />
     <ClInclude Include="Include\BVH.h" />
     <ClInclude Include="Include\DX12.h" />
+    <ClInclude Include="Include\GLTFLoader.h" />
     <ClInclude Include="Include\Input.h" />
     <ClInclude Include="Include\MathLib.h" />
     <ClInclude Include="Include\Primitives.h" />
