@@ -17,7 +17,7 @@ public:
 	Triangle GetTriangle(uint32_t index) const;
 	uint32_t GetMaxDepth() const;
 
-public:
+private:
 	struct BVHNode
 	{
 		AABB bounds;

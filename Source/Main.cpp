@@ -418,6 +418,19 @@ int main(int argc, char* argv[])
 
 	// Load mesh
 	GLTFLoader::Mesh dragon_mesh = GLTFLoader::Load("Assets/Models/Dragon/DragonAttenuation.gltf");
+
+	dragon_mesh.indices.push_back(dragon_mesh.vertices.size() + 0);
+	dragon_mesh.indices.push_back(dragon_mesh.vertices.size() + 1);
+	dragon_mesh.indices.push_back(dragon_mesh.vertices.size() + 2);
+	dragon_mesh.indices.push_back(dragon_mesh.vertices.size() + 2);
+	dragon_mesh.indices.push_back(dragon_mesh.vertices.size() + 3);
+	dragon_mesh.indices.push_back(dragon_mesh.vertices.size() + 0);
+
+	dragon_mesh.vertices.push_back({ Vec3(-2.0f, 5.0f, 2.0f) });
+	dragon_mesh.vertices.push_back({ Vec3(-2.0f, 5.0f, -2.0f) });
+	dragon_mesh.vertices.push_back({ Vec3(2.0f, 5.0f, -2.0f) });
+	dragon_mesh.vertices.push_back({ Vec3(2.0f, 5.0f, 2.0f) });
+
 	data.bounding_volume_hierarchy.Build(dragon_mesh.vertices, dragon_mesh.indices);
 
 	std::chrono::high_resolution_clock::time_point curr_time = std::chrono::high_resolution_clock::now(),
