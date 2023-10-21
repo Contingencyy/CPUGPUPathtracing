@@ -175,8 +175,8 @@ bool IntersectTriangle(const Triangle& triangle, Ray& ray)
 		return false;
 	}
 #elif INTERSECTION_TRIANGLE_MOELLER_TRUMBORE
-	Vec3 edge1 = triangle.v1 - triangle.v0;
-	Vec3 edge2 = triangle.v2 - triangle.v0;
+	Vec3 edge1 = triangle.v1.pos - triangle.v0.pos;
+	Vec3 edge2 = triangle.v2.pos - triangle.v0.pos;
 
 	Vec3 H = Vec3Cross(ray.direction, edge2);
 	float a = Vec3Dot(edge1, H);
@@ -187,7 +187,7 @@ bool IntersectTriangle(const Triangle& triangle, Ray& ray)
 	}
 
 	float f = 1.0f / a;
-	Vec3 S = ray.origin - triangle.v0;
+	Vec3 S = ray.origin - triangle.v0.pos;
 	float u = f * Vec3Dot(S, H);
 
 	if (u < 0.0f || u > 1.0f)
@@ -222,25 +222,23 @@ bool IntersectTriangle(const Triangle& triangle, Ray& ray)
 
 Vec3 GetTriangleNormalAtPoint(const Triangle& triangle, const Vec3& point)
 {
-	Vec3 v0v1 = triangle.v1 - triangle.v0;
-	Vec3 v0v2 = triangle.v2 - triangle.v0;
-	return Vec3Normalize(Vec3Cross(v0v1, v0v2));
+	return triangle.v0.normal;
 }
 
 Vec3 GetTriangleCentroid(const Triangle& triangle)
 {
-	return (triangle.v0 + triangle.v1 + triangle.v2) * 0.3333f;
+	return (triangle.v0.pos + triangle.v1.pos + triangle.v2.pos) * 0.3333f;
 }
 
 AABB GetTriangleBounds(const Triangle& triangle)
 {
-	AABB aabb = { triangle.v0, triangle.v0 };
+	AABB aabb = { triangle.v0.pos, triangle.v0.pos };
 
-	aabb.pmin = Vec3Min(aabb.pmin, triangle.v1);
-	aabb.pmax = Vec3Max(aabb.pmax, triangle.v1);
+	aabb.pmin = Vec3Min(aabb.pmin, triangle.v1.pos);
+	aabb.pmax = Vec3Max(aabb.pmax, triangle.v1.pos);
 
-	aabb.pmin = Vec3Min(aabb.pmin, triangle.v2);
-	aabb.pmax = Vec3Max(aabb.pmax, triangle.v2);
+	aabb.pmin = Vec3Min(aabb.pmin, triangle.v2.pos);
+	aabb.pmax = Vec3Max(aabb.pmax, triangle.v2.pos);
 
 	return aabb;
 }

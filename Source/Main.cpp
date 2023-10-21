@@ -306,9 +306,6 @@ Vec4 TraceRay(Ray& ray, uint8_t depth)
 	Vec3 surface_point = ray.origin + ray.t * ray.direction;
 	Vec3 surface_normal = GetTriangleNormalAtPoint(tri, surface_point);
 
-	if (ray.payload.obj_idx == 2)
-		surface_normal = Vec3(0.0f, 1.0f, 0.0f);
-
 	Vec3 diffuse(0.0f);
 	Vec3 specular(0.0f);
 	Vec3 refract(0.0f);
@@ -420,8 +417,8 @@ void Render()
 int main(int argc, char* argv[])
 {
 	Window::CreateWindowArgs window_args = {};
-	window_args.width = 640;
-	window_args.height = 480;
+	window_args.width = 1280;
+	window_args.height = 720;
 	window_args.title = L"Graphics Advanced Masterclass";
 	Window::Create(window_args);
 
@@ -440,7 +437,7 @@ int main(int argc, char* argv[])
 	data.camera = Camera(Vec3(0.0f, 0.0f, 8.0f), Vec3(0.0f, 0.0f, -1.0f), 60.0f, (float)framebuffer_size.x / framebuffer_size.y);
 
 	//data.materials.emplace_back(Vec3(0.4f, 0.1f, 0.1f), Vec3(0.0f), 0.0f, 0.0f, Vec3(0.0f), 1.0f, false);
-	data.materials.emplace_back(Vec3(0.1f, 0.1f, 0.4f), Vec3(0.0f), 1.0f, 0.0f, 0.0f, Vec3(0.0f), 1.0f, false);
+	data.materials.emplace_back(Vec3(0.2f, 0.2f, 0.8f), Vec3(0.0f), 1.0f, 0.0f, 0.0f, Vec3(0.0f), 1.0f, false);
 	data.materials.emplace_back(Vec3(0.4f), Vec3(0.0f), 1.0f, 0.0f, 0.0f, Vec3(0.0f), 1.0f, false);
 	data.materials.emplace_back(Vec3(1.0f), Vec3(1.0f, 0.95f, 0.8f), 3.0f, 0.0f, 0.0f, Vec3(0.0f), 1.0f, true);
 	//data.materials.emplace_back(Vec4(0.2f, 0.2f, 0.2f, 1.0f), 0.0f, 0.8f, Vec3(0.9f, 0.2f, 0.3f), 1.517f);
@@ -456,10 +453,10 @@ int main(int argc, char* argv[])
 	light_mesh.indices.push_back(2);
 	light_mesh.indices.push_back(3);
 	light_mesh.indices.push_back(0);
-	light_mesh.vertices.push_back({ Vec3(-20.0f, 20.0f, 20.0f) });
-	light_mesh.vertices.push_back({ Vec3(-20.0f, 20.0f, -20.0f) });
-	light_mesh.vertices.push_back({ Vec3(20.0f, 20.0f, -20.0f) });
-	light_mesh.vertices.push_back({ Vec3(20.0f, 20.0f, 20.0f) });
+	light_mesh.vertices.push_back({ Vec3(-25.0f, 20.0f, 25.0f), Vec3(0.0f, -1.0f, 0.0f) });
+	light_mesh.vertices.push_back({ Vec3(-25.0f, 20.0f, -25.0f), Vec3(0.0f, -1.0f, 0.0f) });
+	light_mesh.vertices.push_back({ Vec3(25.0f, 20.0f, -25.0f), Vec3(0.0f, -1.0f, 0.0f) });
+	light_mesh.vertices.push_back({ Vec3(25.0f, 20.0f, 25.0f), Vec3(0.0f, -1.0f, 0.0f) });
 	data.objects.emplace_back("Light", light_mesh, 2, BVH::BuildOption_SAHSplitIntervals);
 
 	Mesh ground_mesh;
@@ -469,10 +466,10 @@ int main(int argc, char* argv[])
 	ground_mesh.indices.push_back(2);
 	ground_mesh.indices.push_back(3);
 	ground_mesh.indices.push_back(0);
-	ground_mesh.vertices.push_back({ Vec3(-1000.0f, -2.0f, 1000.0f) });
-	ground_mesh.vertices.push_back({ Vec3(-1000.0f, -2.0f, -1000.0f) });
-	ground_mesh.vertices.push_back({ Vec3(1000.0f, -2.0f, -1000.0f) });
-	ground_mesh.vertices.push_back({ Vec3(1000.0f, -2.0f, 1000.0f) });
+	ground_mesh.vertices.push_back({ Vec3(-1000.0f, -3.0f, 1000.0f), Vec3(0.0f, 1.0f, 0.0f) });
+	ground_mesh.vertices.push_back({ Vec3(-1000.0f, -3.0f, -1000.0f), Vec3(0.0f, 1.0f, 0.0f) });
+	ground_mesh.vertices.push_back({ Vec3(1000.0f, -3.0f, -1000.0f), Vec3(0.0f, 1.0f, 0.0f) });
+	ground_mesh.vertices.push_back({ Vec3(1000.0f, -3.0f, 1000.0f), Vec3(0.0f, 1.0f, 0.0f) });
 	data.objects.emplace_back("Ground", ground_mesh, 1, BVH::BuildOption_SAHSplitIntervals);
 
 	std::chrono::high_resolution_clock::time_point curr_time = std::chrono::high_resolution_clock::now(),

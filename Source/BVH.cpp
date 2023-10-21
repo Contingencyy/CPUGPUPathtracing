@@ -9,9 +9,9 @@ void BVH::Build(const std::vector<Vertex>& vertices, const std::vector<uint32_t>
 	m_triangles.resize(indices.size() / 3);
 	for (uint32_t i = 0, curr_index = 0; i < m_triangles.size(); ++i, curr_index += 3)
 	{
-		m_triangles[i].v0 = vertices[indices[curr_index]].pos;
-		m_triangles[i].v1 = vertices[indices[curr_index + 1]].pos;
-		m_triangles[i].v2 = vertices[indices[curr_index + 2]].pos;
+		m_triangles[i].v0 = vertices[indices[curr_index]];
+		m_triangles[i].v1 = vertices[indices[curr_index + 1]];
+		m_triangles[i].v2 = vertices[indices[curr_index + 2]];
 	}
 
 	m_tri_indices.resize(m_triangles.size());
@@ -249,16 +249,16 @@ float BVH::EvaluateSAH(BVHNode& node, uint32_t axis, float split_pos)
 		if (centroid.xyz[axis] < split_pos)
 		{
 			left_count++;
-			GrowAABB(left_bounds, tri.v0);
-			GrowAABB(left_bounds, tri.v1);
-			GrowAABB(left_bounds, tri.v2);
+			GrowAABB(left_bounds, tri.v0.pos);
+			GrowAABB(left_bounds, tri.v1.pos);
+			GrowAABB(left_bounds, tri.v2.pos);
 		}
 		else
 		{
 			right_count++;
-			GrowAABB(right_bounds, tri.v0);
-			GrowAABB(right_bounds, tri.v1);
-			GrowAABB(right_bounds, tri.v2);
+			GrowAABB(right_bounds, tri.v0.pos);
+			GrowAABB(right_bounds, tri.v1.pos);
+			GrowAABB(right_bounds, tri.v2.pos);
 		}
 	}
 

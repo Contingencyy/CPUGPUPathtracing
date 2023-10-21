@@ -71,6 +71,15 @@ Mesh GLTFLoader::Load(const std::string& filepath)
 						mesh.vertices[vert_idx].pos = pos_ptr[vert_idx];
 					}
 				} break;
+				case cgltf_attribute_type_normal:
+				{
+					Vec3* normal_ptr = CGLTFGetDataPointer<Vec3>(gltf_attr.data);
+
+					for (size_t vert_idx = 0; vert_idx < gltf_attr.data->count; ++vert_idx)
+					{
+						mesh.vertices[vert_idx].normal = normal_ptr[vert_idx];
+					}
+				} break;
 				}
 			}
 		}

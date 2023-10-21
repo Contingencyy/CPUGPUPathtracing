@@ -12,6 +12,7 @@
 struct Vertex
 {
 	Vec3 pos;
+	Vec3 normal;
 };
 
 enum PrimitiveType : uint8_t
@@ -50,9 +51,9 @@ struct Sphere
 
 struct Triangle
 {
-	Vec3 v0 = Vec3(0.0f);
-	Vec3 v1 = Vec3(0.0f);
-	Vec3 v2 = Vec3(0.0f);
+	Vertex v0;
+	Vertex v1;
+	Vertex v2;
 };
 
 struct AABB
