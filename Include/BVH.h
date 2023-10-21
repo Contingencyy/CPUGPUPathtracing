@@ -4,14 +4,21 @@
 
 #include <vector>
 
-class BVH;
-
 class BVH
 {
 public:
+	enum BVHBuildOption
+	{
+		BVHBuildOption_NaiveSplit,
+		BVHBuildOption_SAHSplit,
+		BVHBuildOption_NumOptions
+	};
+
+public:
 	BVH() = default;
 
-	void Build(const std::vector<Vertex>& vertices, const std::vector<uint32_t>& indices);
+	void Build(const std::vector<Vertex>& vertices, const std::vector<uint32_t>& indices, BVHBuildOption build_option);
+	void Rebuild(BVHBuildOption build_option);
 	void Traverse(Ray& ray);
 
 	Triangle GetTriangle(uint32_t index) const;
@@ -27,11 +34,13 @@ private:
 	};
 
 private:
-	void CalculateNodeBounds(uint32_t node_index);
+	void CalculateNodeBounds(BVHNode& node, const std::vector<uint32_t>& tri_indices);
 	void Subdivide(uint32_t node_index, uint32_t depth);
 	void Intersect(Ray& ray, uint32_t node_index);
 
 private:
+	BVHBuildOption m_build_option = BVHBuildOption_SAHSplit;
+
 	std::vector<BVHNode> m_nodes;
 	uint32_t m_current_node = 0;
 	uint32_t m_max_depth = 0;
@@ -39,5 +48,8 @@ private:
 	std::vector<Triangle> m_triangles;
 	std::vector<uint32_t> m_tri_indices;
 	std::vector<Vec3> m_centroids;
+
+	std::vector<uint32_t> m_cheapest_tri_indices;
+	std::vector<uint32_t> m_curr_tri_indices;
 
 };

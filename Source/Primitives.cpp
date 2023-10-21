@@ -12,6 +12,16 @@ bool IntersectAABB(const AABB& aabb, Ray& ray)
 	return tmax >= tmin && tmin < ray.t && tmax > 0.0f;
 }
 
+float GetAABBVolume(const AABB& aabb)
+{
+	float width = 0.0f, height = 0.0f, depth = 0.0f;
+	width = aabb.pmax.x - aabb.pmin.x;
+	height = aabb.pmax.y - aabb.pmin.y;
+	depth = aabb.pmax.z - aabb.pmin.z;
+
+	return width * height + height * depth + depth * width;
+}
+
 bool IntersectPlane(const Plane& plane, Ray& ray)
 {
 	// Plane: P * N + d = 0

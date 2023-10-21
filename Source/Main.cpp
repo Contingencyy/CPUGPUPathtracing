@@ -182,9 +182,14 @@ enum DebugRenderView
 	DebugRenderView_NumViews
 };
 
-std::vector<const char*> debug_render_view_names =
+const std::vector<const char*> debug_render_view_names =
 {
-	{ "None", "Diffuse", "Specular", "Refract", "Surface normal", "Surface albedo", "Depth", "View direction", "BVH Depth" }
+	"None", "Diffuse", "Specular", "Refract", "Surface normal", "Surface albedo", "Depth", "View direction", "BVH Depth"
+};
+
+const std::vector<const char*> bvh_build_option_names =
+{
+	"Naive split", "SAH split"
 };
 
 struct Data
@@ -196,6 +201,7 @@ struct Data
 	bool pause_rendering = false;
 
 	BVH bounding_volume_hierarchy;
+	BVH::BVHBuildOption bvh_build_option;
 
 	std::vector<Material> materials;
 	Camera camera;
@@ -258,7 +264,7 @@ Vec4 TraceRay(Ray& ray, uint8_t depth)
 	{
 		// Lerp from white to dark red based on bvh depth
 		Vec4 bvh_depth_color = Vec4(1.0f);
-		bvh_depth_color.xyz = Vec3Lerp(Vec3(0.0f, 1.0f, 0.0f), Vec3(1.0f, 0.0f, 0.0f), std::min(1.0f, (float)ray.payload.bvh_depth / data.bounding_volume_hierarchy.GetMaxDepth()));
+		bvh_depth_color.xyz = Vec3Lerp(Vec3(0.0f, 1.0f, 0.0f), Vec3(1.0f, 0.0f, 0.0f), std::min(1.0f, (float)ray.payload.bvh_depth / (data.bounding_volume_hierarchy.GetMaxDepth() + 1)));
 		return bvh_depth_color;
 	}
 
@@ -359,14 +365,14 @@ void Render()
 			{
 				const float u = (float)x * inv_framebuffer_size.x;
 				const float v = (float)y * inv_framebuffer_size.y;
-				
-				Ray ray = data.camera.GetRay(u, v);
-				Vec4 final_color = TraceRay(ray, 0);
 
 				if (data.pause_rendering)
 				{
 					return;
 				}
+				
+				Ray ray = data.camera.GetRay(u, v);
+				Vec4 final_color = TraceRay(ray, 0);
 
 				if (data.debug_view == DebugRenderView_None)
 				{
@@ -408,7 +414,7 @@ int main(int argc, char* argv[])
 
 	data.pixels.resize(framebuffer_size.x * framebuffer_size.y);
 	data.accumulator.resize(framebuffer_size.x * framebuffer_size.y);
-	data.camera = Camera(Vec3(0.0f), Vec3(0.0f, 0.0f, -1.0f), 60.0f, (float)framebuffer_size.x / framebuffer_size.y);
+	data.camera = Camera(Vec3(0.0f, 0.0f, 8.0f), Vec3(0.0f, 0.0f, -1.0f), 60.0f, (float)framebuffer_size.x / framebuffer_size.y);
 
 	//data.materials.emplace_back(Vec3(0.4f, 0.1f, 0.1f), Vec3(0.0f), 0.0f, 0.0f, Vec3(0.0f), 1.0f, false);
 	//data.materials.emplace_back(Vec3(0.1f, 0.1f, 0.4f), Vec3(0.0f), 0.0f, 0.0f, Vec3(0.0f), 1.0f, false);
@@ -431,7 +437,8 @@ int main(int argc, char* argv[])
 	dragon_mesh.vertices.push_back({ Vec3(2.0f, 5.0f, -2.0f) });
 	dragon_mesh.vertices.push_back({ Vec3(2.0f, 5.0f, 2.0f) });
 
-	data.bounding_volume_hierarchy.Build(dragon_mesh.vertices, dragon_mesh.indices);
+	data.bounding_volume_hierarchy.Build(dragon_mesh.vertices, dragon_mesh.indices, BVH::BVHBuildOption_SAHSplit);
+	data.bvh_build_option = BVH::BVHBuildOption_SAHSplit;
 
 	std::chrono::high_resolution_clock::time_point curr_time = std::chrono::high_resolution_clock::now(),
 		last_time = std::chrono::high_resolution_clock::now();
@@ -462,7 +469,6 @@ int main(int argc, char* argv[])
 			for (size_t i = 0; i < DebugRenderView_NumViews; ++i)
 			{
 				bool is_selected = i == data.debug_view;
-
 				if (ImGui::Selectable(debug_render_view_names[i], is_selected))
 				{
 					data.debug_view = (DebugRenderView)i;
@@ -475,6 +481,38 @@ int main(int argc, char* argv[])
 			}
 
 			ImGui::EndCombo();
+		}
+
+		ImGui::SetNextItemOpen(true, ImGuiCond_Once);
+		if (ImGui::CollapsingHeader("Bounding Volume Hierarchy"))
+		{
+			ImGui::Indent(10.0f);
+
+			ImGui::Text("BVH Depth: %u", data.bounding_volume_hierarchy.GetMaxDepth());
+			if (ImGui::Button("Rebuild BVH"))
+			{
+				data.bounding_volume_hierarchy.Rebuild(data.bvh_build_option);
+			}
+			if (ImGui::BeginCombo("Build options", bvh_build_option_names[data.bvh_build_option]))
+			{
+				for (size_t i = 0; i < BVH::BVHBuildOption_NumOptions; ++i)
+				{
+					bool is_selected = i == data.bvh_build_option;
+					if (ImGui::Selectable(bvh_build_option_names[i], is_selected))
+					{
+						data.bvh_build_option = (BVH::BVHBuildOption)i;
+					}
+
+					if (is_selected)
+					{
+						ImGui::SetItemDefaultFocus();
+					}
+				}
+
+				ImGui::EndCombo();
+			}
+
+			ImGui::Unindent(10.0f);
 		}
 		ImGui::End();
 

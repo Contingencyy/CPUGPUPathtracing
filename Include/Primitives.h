@@ -67,6 +67,8 @@ struct Ray
 };
 
 bool IntersectAABB(const AABB& aabb, Ray& ray);
+float GetAABBVolume(const AABB& aabb);
+
 bool IntersectPlane(const Plane& plane, Ray& ray);
 
 bool IntersectSphere(const Sphere& sphere, Ray& ray);
