@@ -83,9 +83,9 @@ inline Vec3 operator+(const Vec3& v0, const Vec3& v1) { return Vec3(v0.x + v1.x,
 inline Vec3 operator-(const Vec3& v0, const Vec3& v1) { return Vec3(v0.x - v1.x, v0.y - v1.y, v0.z - v1.z); }
 inline Vec3 operator*(const Vec3& v0, const Vec3& v1) { return Vec3(v0.x * v1.x, v0.y * v1.y, v0.z * v1.z); }
 inline Vec3 operator*(const Vec3& v0, const float s) { return Vec3(v0.x * s, v0.y * s, v0.z * s); }
-inline Vec3 operator*(const float s, const Vec3& v0) { return Vec3(v0.x * s, v0.y * s, v0.z * s); }
+inline Vec3 operator*(const float s, const Vec3& v0) { return Vec3(s * v0.x, s * v0.y, s * v0.z); }
 inline Vec3 operator/(const Vec3& v0, const float s) { return Vec3(v0.x / s, v0.y / s, v0.z / s); }
-inline Vec3 operator/(const float s, const Vec3& v0) { return Vec3(v0.x / s, v0.y / s, v0.z / s); }
+inline Vec3 operator/(const float s, const Vec3& v0) { return Vec3(s / v0.x, s / v0.y, s / v0.z); }
 
 inline Vec3 Vec3Cross(const Vec3& v0, const Vec3& v1) { return Vec3(v0.y * v1.z - v0.z * v1.y, v0.z * v1.x - v0.x * v1.z, v0.x * v1.y - v0.y * v1.x); }
 inline float Vec3Dot(const Vec3& v0, const Vec3& v1) { return v0.x * v1.x + v0.y * v1.y + v0.z * v1.z; }

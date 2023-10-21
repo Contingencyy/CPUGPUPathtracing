@@ -2,11 +2,11 @@
 
 bool IntersectAABB(const AABB& aabb, Ray& ray)
 {
-	float tx1 = (aabb.pmin.x - ray.origin.x) / ray.direction.x, tx2 = (aabb.pmax.x - ray.origin.x) / ray.direction.x;
+	float tx1 = (aabb.pmin.x - ray.origin.x) * ray.inv_direction.x, tx2 = (aabb.pmax.x - ray.origin.x) * ray.inv_direction.x;
 	float tmin = std::min(tx1, tx2), tmax = std::max(tx1, tx2);
-	float ty1 = (aabb.pmin.y - ray.origin.y) / ray.direction.y, ty2 = (aabb.pmax.y - ray.origin.y) / ray.direction.y;
+	float ty1 = (aabb.pmin.y - ray.origin.y) * ray.inv_direction.y, ty2 = (aabb.pmax.y - ray.origin.y) * ray.inv_direction.y;
 	tmin = std::max(tmin, std::min(ty1, ty2)), tmax = std::min(tmax, std::max(ty1, ty2));
-	float tz1 = (aabb.pmin.z - ray.origin.z) / ray.direction.z, tz2 = (aabb.pmax.z - ray.origin.z) / ray.direction.z;
+	float tz1 = (aabb.pmin.z - ray.origin.z) * ray.inv_direction.z, tz2 = (aabb.pmax.z - ray.origin.z) * ray.inv_direction.z;
 	tmin = std::max(tmin, std::min(tz1, tz2)), tmax = std::min(tmax, std::max(tz1, tz2));
 
 	return tmax >= tmin && tmin < ray.t && tmax > 0.0f;
@@ -14,12 +14,14 @@ bool IntersectAABB(const AABB& aabb, Ray& ray)
 
 float GetAABBVolume(const AABB& aabb)
 {
-	float width = 0.0f, height = 0.0f, depth = 0.0f;
-	width = aabb.pmax.x - aabb.pmin.x;
-	height = aabb.pmax.y - aabb.pmin.y;
-	depth = aabb.pmax.z - aabb.pmin.z;
+	Vec3 extent = aabb.pmax - aabb.pmin;
+	return extent.x * extent.y + extent.y * extent.z + extent.z * extent.x;
+}
 
-	return width * height + height * depth + depth * width;
+void GrowAABB(AABB& aabb, const Vec3& p)
+{
+	aabb.pmin = Vec3Min(aabb.pmin, p);
+	aabb.pmax = Vec3Max(aabb.pmax, p);
 }
 
 bool IntersectPlane(const Plane& plane, Ray& ray)

@@ -26,9 +26,6 @@ void BVH::Build(const std::vector<Vertex>& vertices, const std::vector<uint32_t>
 		m_centroids[i] = GetTriangleCentroid(m_triangles[i]);
 	}
 
-	m_cheapest_tri_indices.resize(m_tri_indices.size());
-	m_curr_tri_indices.resize(m_tri_indices.size());
-
 	m_nodes.resize(m_triangles.size() * 2 - 1);
 
 	BVHNode& root_node = m_nodes[m_current_node++];
@@ -101,139 +98,51 @@ void BVH::Subdivide(uint32_t node_index, uint32_t depth)
 			axis = 2;
 
 		float split_pos = node.bounds.pmin.xyz[axis] + extent.xyz[axis] * 0.5f;
-
-		int32_t i = node.left_first;
-		int32_t j = i + node.prim_count - 1;
-
-		while (i <= j)
-		{
-			if (m_centroids[m_tri_indices[i]].xyz[axis] < split_pos)
-			{
-				i++;
-			}
-			else
-			{
-				std::swap(m_tri_indices[i], m_tri_indices[j--]);
-			}
-		}
-
-		uint32_t left_count = i - node.left_first;
-		if (left_count == 0 || left_count == node.prim_count)
-			return;
-
-		uint32_t left_child_index = m_current_node++;
-		uint32_t right_child_index = m_current_node++;
-
-		m_nodes[left_child_index].left_first = node.left_first;
-		m_nodes[left_child_index].prim_count = left_count;
-		m_nodes[right_child_index].left_first = i;
-		m_nodes[right_child_index].prim_count = node.prim_count - left_count;
-
-		node.left_first = left_child_index;
-		node.prim_count = 0;
-
-		CalculateNodeBounds(m_nodes[left_child_index], m_tri_indices);
-		CalculateNodeBounds(m_nodes[right_child_index], m_tri_indices);
-
-		Subdivide(left_child_index, depth + 1);
-		Subdivide(right_child_index, depth + 1);
+		Split(node, axis, split_pos, depth);
 	}
 	else if (m_build_option == BVHBuildOption_SAHSplitIntervals)
 	{
 		BVHNode& node = m_nodes[node_index];
-		float parent_node_cost = GetAABBVolume(node.bounds) * node.prim_count;
+		float parent_cost = GetAABBVolume(node.bounds) * node.prim_count;
 
-		bool cheaper_split_found = false;
-		float cheapest_split_cost = 1e34f;
-		BVHNode cheapest_left_node = {};
-		BVHNode cheapest_right_node = {};
-
-		BVHNode current_left_node = {};
-		BVHNode current_right_node = {};
+		float cheapest_cost = 1e30f;
+		uint32_t cheapest_split_axis = 0;
+		float cheapest_split_pos = 0.0f;
 
 		for (uint32_t split_idx = 0; split_idx < 8; ++split_idx)
 		{
 			for (uint32_t curr_axis = 0; curr_axis < 3; ++curr_axis)
 			{
-				m_curr_tri_indices = m_tri_indices;
-
 				float axis_width = node.bounds.pmax.xyz[curr_axis] - node.bounds.pmin.xyz[curr_axis];
 				float split_pos = axis_width * ((float)split_idx / 8) + node.bounds.pmin.xyz[curr_axis];
-
-				int32_t i = node.left_first;
-				int32_t j = i + node.prim_count - 1;
-
-				while (i <= j)
-				{
-					if (m_centroids[m_curr_tri_indices[i]].xyz[curr_axis] < split_pos)
-					{
-						i++;
-					}
-					else
-					{
-						std::swap(m_curr_tri_indices[i], m_curr_tri_indices[j--]);
-					}
-				}
-
-				uint32_t left_count = i - node.left_first;
-				if (left_count == 0 || left_count == node.prim_count)
-					continue;
-
-				current_left_node.left_first = node.left_first;
-				current_left_node.prim_count = left_count;
-				current_right_node.left_first = i;
-				current_right_node.prim_count = node.prim_count - left_count;
-
-				CalculateNodeBounds(current_left_node, m_curr_tri_indices);
-				CalculateNodeBounds(current_right_node, m_curr_tri_indices);
-
-				float split_cost = GetAABBVolume(current_left_node.bounds) * current_left_node.prim_count +
-					GetAABBVolume(current_right_node.bounds) * current_right_node.prim_count;
+				float split_cost = EvaluateSAH(node, curr_axis, split_pos);
 
 				// We update the cheapest split if the split is cheaper than the parent cost
-				if (split_cost < parent_node_cost && split_cost < cheapest_split_cost)
+				if (split_cost < cheapest_cost)
 				{
-					cheaper_split_found = true;
-					cheapest_split_cost = split_cost;
-
-					cheapest_left_node = current_left_node;
-					cheapest_right_node = current_right_node;
-					m_cheapest_tri_indices = m_curr_tri_indices;
+					cheapest_cost = split_cost;
+					cheapest_split_axis = curr_axis;
+					cheapest_split_pos = split_pos;
 				}
 			}
 		}
 
 		// We can terminate the splitting, no cheaper split was found
-		if (!cheaper_split_found)
+		if (cheapest_cost >= parent_cost)
 		{
 			return;
 		}
 
-		uint32_t left_child_index = m_current_node++;
-		uint32_t right_child_index = m_current_node++;
-
-		m_nodes[left_child_index] = cheapest_left_node;
-		m_nodes[right_child_index] = cheapest_right_node;
-		m_tri_indices = m_cheapest_tri_indices;
-
-		node.left_first = left_child_index;
-		node.prim_count = 0;
-
-		Subdivide(left_child_index, depth + 1);
-		Subdivide(right_child_index, depth + 1);
+		Split(node, cheapest_split_axis, cheapest_split_pos, depth);
 	}
 	else if (m_build_option == BVHBuildOption_SAHSplitPrimitives)
 	{
 		BVHNode& node = m_nodes[node_index];
-		float parent_node_cost = GetAABBVolume(node.bounds) * node.prim_count;
+		float parent_cost = GetAABBVolume(node.bounds) * node.prim_count;
 
-		bool cheaper_split_found = false;
-		float cheapest_split_cost = 1e34f;
-		BVHNode cheapest_left_node = {};
-		BVHNode cheapest_right_node = {};
-
-		BVHNode current_left_node = {};
-		BVHNode current_right_node = {};
+		float cheapest_cost = 1e30f;
+		uint32_t cheapest_split_axis = 0;
+		float cheapest_split_pos = 0.0f;
 
 		for (uint32_t tri_idx = node.left_first; tri_idx < node.left_first + node.prim_count; ++tri_idx)
 		{
@@ -242,71 +151,96 @@ void BVH::Subdivide(uint32_t node_index, uint32_t depth)
 
 			for (uint32_t curr_axis = 0; curr_axis < 3; ++curr_axis)
 			{
-				m_curr_tri_indices = m_tri_indices;
-
+				float axis_width = node.bounds.pmax.xyz[curr_axis] - node.bounds.pmin.xyz[curr_axis];
 				float split_pos = centroid.xyz[curr_axis];
-				int32_t i = node.left_first;
-				int32_t j = i + node.prim_count - 1;
-
-				while (i <= j)
-				{
-					if (m_centroids[m_curr_tri_indices[i]].xyz[curr_axis] < split_pos)
-					{
-						i++;
-					}
-					else
-					{
-						std::swap(m_curr_tri_indices[i], m_curr_tri_indices[j--]);
-					}
-				}
-
-				uint32_t left_count = i - node.left_first;
-				if (left_count == 0 || left_count == node.prim_count)
-					continue;
-
-				current_left_node.left_first = node.left_first;
-				current_left_node.prim_count = left_count;
-				current_right_node.left_first = i;
-				current_right_node.prim_count = node.prim_count - left_count;
-
-				CalculateNodeBounds(current_left_node, m_curr_tri_indices);
-				CalculateNodeBounds(current_right_node, m_curr_tri_indices);
-
-				float split_cost = GetAABBVolume(current_left_node.bounds) * current_left_node.prim_count +
-					GetAABBVolume(current_right_node.bounds) * current_right_node.prim_count;
+				float split_cost = EvaluateSAH(node, curr_axis, split_pos);
 
 				// We update the cheapest split if the split is cheaper than the parent cost
-				if (split_cost < parent_node_cost && split_cost < cheapest_split_cost)
+				if (split_cost < cheapest_cost)
 				{
-					cheaper_split_found = true;
-					cheapest_split_cost = split_cost;
-
-					cheapest_left_node = current_left_node;
-					cheapest_right_node = current_right_node;
-					m_cheapest_tri_indices = m_curr_tri_indices;
+					cheapest_split_axis = curr_axis;
+					cheapest_split_pos = split_pos;
 				}
 			}
 		}
 
 		// We can terminate the splitting, no cheaper split was found
-		if (!cheaper_split_found)
+		if (cheapest_cost >= parent_cost)
 		{
 			return;
 		}
 
-		uint32_t left_child_index = m_current_node++;
-		uint32_t right_child_index = m_current_node++;
-
-		m_nodes[left_child_index] = cheapest_left_node;
-		m_nodes[right_child_index] = cheapest_right_node;
-		m_tri_indices = m_cheapest_tri_indices;
-
-		node.left_first = left_child_index;
-		node.prim_count = 0;
-
-		Subdivide(left_child_index, depth + 1);
-		Subdivide(right_child_index, depth + 1);
+		Split(node, cheapest_split_axis, cheapest_split_pos, depth);
 	}
+}
+
+float BVH::EvaluateSAH(BVHNode& node, uint32_t axis, float split_pos)
+{
+	AABB left_bounds = { Vec3(1e30f), Vec3(-1e30f) }, right_bounds = { Vec3(1e30f), Vec3(-1e30f) };
+	uint32_t left_count = 0, right_count = 0;
+
+	for (uint32_t tri_idx = node.left_first; tri_idx < node.left_first + node.prim_count; ++tri_idx)
+	{
+		const Triangle& tri = m_triangles[m_tri_indices[tri_idx]];
+		const Vec3& centroid = m_centroids[m_tri_indices[tri_idx]];
+
+		if (centroid.xyz[axis] < split_pos)
+		{
+			left_count++;
+			GrowAABB(left_bounds, tri.v0);
+			GrowAABB(left_bounds, tri.v1);
+			GrowAABB(left_bounds, tri.v2);
+		}
+		else
+		{
+			right_count++;
+			GrowAABB(right_bounds, tri.v0);
+			GrowAABB(right_bounds, tri.v1);
+			GrowAABB(right_bounds, tri.v2);
+		}
+	}
+
+	float split_cost = left_count * GetAABBVolume(left_bounds) + right_count * GetAABBVolume(right_bounds);
+	return split_cost;
+}
+
+void BVH::Split(BVHNode& node, uint32_t axis, float split_pos, uint32_t depth)
+{
+	int32_t i = node.left_first;
+	int32_t j = i + node.prim_count - 1;
+
+	while (i <= j)
+	{
+		if (m_centroids[m_tri_indices[i]].xyz[axis] < split_pos)
+		{
+			i++;
+		}
+		else
+		{
+			std::swap(m_tri_indices[i], m_tri_indices[j--]);
+		}
+	}
+
+	uint32_t left_count = i - node.left_first;
+	if (left_count == 0 || left_count == node.prim_count)
+		return;
+
+	uint32_t left_child_index = m_current_node++;
+	uint32_t right_child_index = m_current_node++;
+
+	m_nodes[left_child_index].left_first = node.left_first;
+	m_nodes[left_child_index].prim_count = left_count;
+	m_nodes[right_child_index].left_first = i;
+	m_nodes[right_child_index].prim_count = node.prim_count - left_count;
+
+	node.left_first = left_child_index;
+	node.prim_count = 0;
+
+	CalculateNodeBounds(m_nodes[left_child_index], m_tri_indices);
+	CalculateNodeBounds(m_nodes[right_child_index], m_tri_indices);
+
+	Subdivide(left_child_index, depth + 1);
+	Subdivide(right_child_index, depth + 1);
 }
 
 void BVH::Intersect(Ray& ray, uint32_t node_index)

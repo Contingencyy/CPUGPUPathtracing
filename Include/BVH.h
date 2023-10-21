@@ -37,6 +37,8 @@ private:
 private:
 	void CalculateNodeBounds(BVHNode& node, const std::vector<uint32_t>& tri_indices);
 	void Subdivide(uint32_t node_index, uint32_t depth);
+	float EvaluateSAH(BVHNode& node, uint32_t axis, float split_pos);
+	void Split(BVHNode& node, uint32_t axis, float split_pos, uint32_t depth);
 	void Intersect(Ray& ray, uint32_t node_index);
 
 private:
@@ -49,8 +51,5 @@ private:
 	std::vector<Triangle> m_triangles;
 	std::vector<uint32_t> m_tri_indices;
 	std::vector<Vec3> m_centroids;
-
-	std::vector<uint32_t> m_cheapest_tri_indices;
-	std::vector<uint32_t> m_curr_tri_indices;
 
 };

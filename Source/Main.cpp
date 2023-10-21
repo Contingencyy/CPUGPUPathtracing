@@ -135,7 +135,7 @@ public:
 			u * (m_screen_plane.top_right - m_screen_plane.top_left) +
 			v * (m_screen_plane.bottom_left - m_screen_plane.top_left);
 
-		return { .origin = m_pos, .direction = Vec3Normalize(pixel_pos - m_pos) };
+		return Ray(m_pos, Vec3Normalize(pixel_pos - m_pos));
 	}
 
 private:
@@ -294,7 +294,7 @@ Vec4 TraceRay(Ray& ray, uint8_t depth)
 	// Diffuse reflection
 
 	Vec3 diffuse_dir = Util::UniformHemisphereSample(surface_normal);
-	Ray diffuse_ray = { .origin = surface_point + diffuse_dir * RAY_REFLECT_NUDGE_MULTIPLIER, .direction = diffuse_dir };
+	Ray diffuse_ray(surface_point + diffuse_dir * RAY_REFLECT_NUDGE_MULTIPLIER, diffuse_dir);
 	float cosi = Vec3Dot(diffuse_dir, surface_normal);
 	Vec4 irradiance = cosi * TraceRay(diffuse_ray, depth + 1);
 

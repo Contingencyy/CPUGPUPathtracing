@@ -55,8 +55,15 @@ struct AABB
 
 struct Ray
 {
+	Ray(const Vec3& orig, const Vec3& dir)
+		: origin(orig), direction(dir)
+	{
+		inv_direction = 1.0f / dir;
+	}
+
 	Vec3 origin = Vec3(0.0f);
 	Vec3 direction = Vec3(0.0f);
+	Vec3 inv_direction = Vec3(0.0f);
 	float t = 1e34f;
 
 	struct Payload
@@ -68,6 +75,7 @@ struct Ray
 
 bool IntersectAABB(const AABB& aabb, Ray& ray);
 float GetAABBVolume(const AABB& aabb);
+void GrowAABB(AABB& aabb, const Vec3& p);
 
 bool IntersectPlane(const Plane& plane, Ray& ray);
 
