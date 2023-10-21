@@ -14,12 +14,15 @@ Features:
   - Beer's law (absorption)
 
 Specular reflections in ground:
+
 https://github.com/Contingencyy/GraphicsAdvancedMasterclass/assets/34250026/2b92ffef-3ef1-41b3-bf58-f2804c318472
 
 Glass Dragon:
+
 https://github.com/Contingencyy/GraphicsAdvancedMasterclass/assets/34250026/dd2dfc71-727f-4e18-b091-6d15b0cc88f1
 
 BVH mid point split vs. SAH:
+
 https://github.com/Contingencyy/GraphicsAdvancedMasterclass/assets/34250026/48768f8a-f8cf-48c0-b87f-1207447fb158
 
 
