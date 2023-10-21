@@ -6,34 +6,12 @@ namespace Util
 
 	Vec3 UniformHemisphereSample(const Vec3& normal)
 	{
-		float r1 = RandomFloat();
-		float r2 = RandomFloat();
+		Vec3 dir = Vec3(RandomFloat() * 2 - 1, RandomFloat() * 2 - 1, RandomFloat() * 2 - 1);
 
-		float sin_theta = std::sqrtf(1.0f - r1 * r1);
-		float phi = 2 * PI * r2;
+		if (Vec3Dot(dir, normal) < 0.0f)
+			dir *= -1.0f;
 
-		float x = sin_theta * cosf(phi);
-		float z = sin_theta * sinf(phi);
-
-		Vec3 Nt(0.0f);
-
-		if (std::fabs(normal.x) > std::fabs(normal.y))
-		{
-			Nt = Vec3(normal.z, 0.0f, -normal.x) / std::sqrtf(normal.x * normal.x + normal.z * normal.z);
-		}
-		else
-		{
-			Nt = Vec3(0.0f, -normal.z, normal.y) / std::sqrtf(normal.y * normal.y + normal.z * normal.z);
-		}
-
-		Vec3 Nb = Vec3Cross(normal, Nt);
-		Vec3 sample(x, r1, z);
-
-		return Vec3Normalize(Vec3(
-			sample.x * Nb.x + sample.y * normal.x + sample.z * Nt.x,
-			sample.x * Nb.y + sample.y * normal.y + sample.z * Nt.y,
-			sample.x * Nb.z + sample.y * normal.z + sample.z * Nt.z
-		));
+		return Vec3Normalize(dir);
 	}
 
 	Vec3 Reflect(const Vec3& dir, const Vec3& normal)
@@ -48,6 +26,11 @@ namespace Util
 		float pPolarized = (ior_outside * out - ior_inside * in) /
 			(ior_outside * out + ior_inside * in);
 		return 0.5f * ((sPolarized * sPolarized) + (pPolarized * pPolarized));
+	}
+
+	Vec3 Refract(const Vec3& dir, const Vec3& normal, float eta, float cosi, float k)
+	{
+		return Vec3Normalize(dir * eta + ((eta * cosi - std::sqrtf(k)) * normal));
 	}
 
 }

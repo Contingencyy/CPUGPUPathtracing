@@ -94,6 +94,7 @@ inline Vec3 Vec3Normalize(const Vec3& v0) { float rcp_length = 1.0f / Vec3Length
 
 inline Vec3 Vec3Min(const Vec3& v0, const Vec3& v1) { return Vec3(std::min(v0.x, v1.x), std::min(v0.y, v1.y), std::min(v0.z, v1.z)); }
 inline Vec3 Vec3Max(const Vec3& v0, const Vec3& v1) { return Vec3(std::max(v0.x, v1.x), std::max(v0.y, v1.y), std::max(v0.z, v1.z)); }
+inline Vec3 Vec3Abs(const Vec3& v0) { return Vec3(std::fabs(v0.x), std::fabs(v0.y), std::fabs(v0.z)); }
 
 inline Vec3 Vec3Lerp(const Vec3& v0, const Vec3& v1, float s) { return Vec3(v0.x + (v1.x - v0.x) * s, v0.y + (v1.y - v0.y) * s, v0.z + (v1.z - v0.z) * s); }
 

@@ -56,39 +56,28 @@
 #include "imgui/imgui_impl_win32.h"
 #include "imgui/imgui_impl_dx12.h"
 
-/*
-	
-	Whitted-style raytracer (Finished):
-	- Direct illumination of multiple light sources, takes into account:
-		- Visibility
-		- Distance attenuation
-		- Shading model (N dot L for diffuse, or lambert)
-	- Pure specular reflections with recursion
-	- Dielectrics with fresnel with recursion
-	- Beer's Law
-
-	Cook raytracer (In-progress):
-	- Area lights
-	- Glossy reflections
-	- Anti-aliasing
-	- Motion blur
-	- Depth of field
-
-*/
-
 static constexpr uint8_t MAX_RAY_DEPTH = 4;
 static constexpr float RAY_REFLECT_NUDGE_MULTIPLIER = 0.001f;
 
 struct Material
 {
 	Vec3 albedo = Vec3(0.0f);
-	Vec3 emissive = Vec3(0.0f);
-	float intensity = 1.0f;
 	float specular = 0.0f;
+
 	float refractivity = 0.0f;
 	Vec3 absorption = Vec3(0.0f);
 	float ior = 1.0f;
+
+	Vec3 emissive = Vec3(0.0f);
+	float intensity = 0.0f;
 	bool is_light = false;
+
+	Material(const Vec3& albedo, float spec)
+		: albedo(albedo), specular(spec) {}
+	Material(const Vec3& albedo, float spec, float refract, const Vec3& absorption, float ior)
+		: albedo(albedo), specular(spec), refractivity(refract), absorption(absorption), ior(ior) {}
+	Material(const Vec3& emissive, float intensity, bool light)
+		: emissive(emissive), intensity(intensity), is_light(light) {}
 };
 
 class Camera
@@ -273,17 +262,6 @@ void IntersectScene(Ray& ray)
 	}
 }
 
-Vec3 GetObjectSurfaceNormalAtPoint(PrimitiveType type, void* prim, const Vec3& point)
-{
-	switch (type)
-	{
-	case PrimitiveType_Triangle:
-		return GetTriangleNormalAtPoint(*(Triangle*)prim, point);
-	case PrimitiveType_Sphere:
-		return GetSphereNormalAtPoint(*(Sphere*)prim, point);
-	}
-}
-
 Vec4 TraceRay(Ray& ray, uint8_t depth)
 {
 	// Abort, max ray depth has been reached, return black
@@ -304,7 +282,7 @@ Vec4 TraceRay(Ray& ray, uint8_t depth)
 
 	// We have not hit anything, so we return black (or sky color)
 	if (ray.payload.obj_idx == ~0u)
-		return Vec4(0.0f);
+		return Vec4(0.55f, 0.8f, 0.9f, 1.0f);
 
 	// If we have hit a light source, we return its emissive color
 	const Triangle& tri = data.objects[ray.payload.obj_idx].bounding_volume_hierarchy.GetTriangle(ray.payload.tri_idx);
@@ -324,18 +302,84 @@ Vec4 TraceRay(Ray& ray, uint8_t depth)
 	Vec3 specular(0.0f);
 	Vec3 refract(0.0f);
 
-	// ---------------------------------------------------------------------------------------------------------
-	// Diffuse reflection
+	float r = RandomFloat();
 
-	Vec3 diffuse_dir = Util::UniformHemisphereSample(surface_normal);
-	Ray diffuse_ray(surface_point + diffuse_dir * RAY_REFLECT_NUDGE_MULTIPLIER, diffuse_dir);
-	float cosi = Vec3Dot(diffuse_dir, surface_normal);
-	Vec4 irradiance = cosi * TraceRay(diffuse_ray, depth + 1);
-
-	if (diffuse_ray.payload.obj_idx != ~0u)
+	// Specular reflection
+	if (r < surface_material.specular)
 	{
-		Vec3 diffuse_brdf = surface_material.albedo * INV_PI;
-		diffuse = 2.0f * PI * diffuse_brdf * irradiance.xyz;
+		Vec3 specular_dir = Util::Reflect(ray.direction, surface_normal);
+		Ray specular_ray(surface_point + specular_dir * RAY_REFLECT_NUDGE_MULTIPLIER, specular_dir);
+		specular = surface_material.albedo * TraceRay(specular_ray, depth + 1).xyz;
+	}
+	// Dielectrics
+	else if (r < surface_material.specular + surface_material.refractivity)
+	{
+		Vec3 N = surface_normal;
+
+		float cosi = std::clamp(Vec3Dot(N, ray.direction), -1.0f, 1.0f);
+		float etai = 1.0f, etat = surface_material.ior;
+
+		float Fr = 1.0f;
+		bool inside = true;
+
+		if (cosi < 0.0f)
+		{
+			cosi = -cosi;
+			inside = false;
+		}
+		else
+		{
+			std::swap(etai, etat);
+			N = -N;
+		}
+
+		float eta = etai / etat;
+		float k = 1.0f - eta * eta * (1.0f - cosi * cosi);
+
+		if (k >= 0.0f)
+		{
+			Vec3 refract_dir = Util::Refract(ray.direction, N, eta, cosi, k);
+			Ray refract_ray(surface_point + refract_dir * RAY_REFLECT_NUDGE_MULTIPLIER, refract_dir);
+
+			float angle_in = Vec3Dot(ray.direction, surface_normal);
+			float angle_out = Vec3Dot(refract_dir, surface_normal);
+
+			Fr = Util::Fresnel(angle_in, angle_out, etai, etat);
+			if (RandomFloat() > Fr)
+			{
+				refract = surface_material.albedo * TraceRay(refract_ray, depth + 1).xyz;
+
+				if (inside)
+				{
+					Vec3 absorption(0.0f);
+					absorption.x = std::expf(-surface_material.absorption.x * ray.t);
+					absorption.y = std::expf(-surface_material.absorption.y * ray.t);
+					absorption.z = std::expf(-surface_material.absorption.z * ray.t);
+
+					refract *= absorption;
+				}
+			}
+			else
+			{
+				Vec3 specular_dir = Util::Reflect(ray.direction, surface_normal);
+				Ray specular_ray(surface_point + specular_dir * RAY_REFLECT_NUDGE_MULTIPLIER, specular_dir);
+				specular = surface_material.albedo * TraceRay(specular_ray, depth + 1).xyz;
+			}
+		}
+	}
+	// Diffuse
+	else
+	{
+		Vec3 diffuse_dir = Util::UniformHemisphereSample(surface_normal);
+		Ray diffuse_ray(surface_point + diffuse_dir * RAY_REFLECT_NUDGE_MULTIPLIER, diffuse_dir);
+		float cosi = Vec3Dot(diffuse_dir, surface_normal);
+		Vec4 irradiance = cosi * TraceRay(diffuse_ray, depth + 1);
+
+		if (diffuse_ray.payload.obj_idx != ~0u)
+		{
+			Vec3 diffuse_brdf = surface_material.albedo * INV_PI;
+			diffuse = 2.0f * PI * diffuse_brdf * irradiance.xyz;
+		}
 	}
 
 	// ---------------------------------------------------------------------------------------------------------
@@ -361,7 +405,7 @@ Vec4 TraceRay(Ray& ray, uint8_t depth)
 		} break;
 		case DebugRenderView_SurfaceNormal:
 		{
-			final_color.xyz = (surface_normal + 1.0f) * 0.5f;
+			final_color.xyz = Vec3Abs(surface_normal);
 		} break;
 		case DebugRenderView_SurfaceAlbedo:
 		{
@@ -451,28 +495,15 @@ int main(int argc, char* argv[])
 	data.accumulator.resize(framebuffer_size.x * framebuffer_size.y);
 	data.camera = Camera(Vec3(0.0f, 0.0f, 8.0f), Vec3(0.0f, 0.0f, -1.0f), 60.0f, (float)framebuffer_size.x / framebuffer_size.y);
 
-	//data.materials.emplace_back(Vec3(0.4f, 0.1f, 0.1f), Vec3(0.0f), 0.0f, 0.0f, Vec3(0.0f), 1.0f, false);
-	data.materials.emplace_back(Vec3(0.2f, 0.2f, 0.8f), Vec3(0.0f), 1.0f, 0.0f, 0.0f, Vec3(0.0f), 1.0f, false);
-	data.materials.emplace_back(Vec3(0.4f), Vec3(0.0f), 1.0f, 0.0f, 0.0f, Vec3(0.0f), 1.0f, false);
-	data.materials.emplace_back(Vec3(1.0f), Vec3(1.0f, 0.95f, 0.8f), 3.0f, 0.0f, 0.0f, Vec3(0.0f), 1.0f, true);
-	//data.materials.emplace_back(Vec4(0.2f, 0.2f, 0.2f, 1.0f), 0.0f, 0.8f, Vec3(0.9f, 0.2f, 0.3f), 1.517f);
+	data.materials.emplace_back(Vec3(0.2f, 0.2f, 0.8f), 0.0f);
+	data.materials.emplace_back(Vec3(0.4f), 0.0f);
+	data.materials.emplace_back(Vec3(1.0f, 0.95f, 0.8f), 2.5f, true);
+	data.materials.emplace_back(Vec3(1.0f), 0.1f, 0.9f, Vec3(0.2f, 0.8f, 0.8f), 1.517f);
 
 	// Load mesh and build its BVH
 	Mesh dragon_mesh = GLTFLoader::Load("Assets/Models/Dragon/DragonAttenuation.gltf");
-	data.objects.emplace_back("Dragon", dragon_mesh, 0, BVH::BuildOption_SAHSplitIntervals);
-	
-	Mesh light_mesh;
-	light_mesh.indices.push_back(0);
-	light_mesh.indices.push_back(1);
-	light_mesh.indices.push_back(2);
-	light_mesh.indices.push_back(2);
-	light_mesh.indices.push_back(3);
-	light_mesh.indices.push_back(0);
-	light_mesh.vertices.push_back({ Vec3(-25.0f, 20.0f, 25.0f), Vec3(0.0f, -1.0f, 0.0f) });
-	light_mesh.vertices.push_back({ Vec3(-25.0f, 20.0f, -25.0f), Vec3(0.0f, -1.0f, 0.0f) });
-	light_mesh.vertices.push_back({ Vec3(25.0f, 20.0f, -25.0f), Vec3(0.0f, -1.0f, 0.0f) });
-	light_mesh.vertices.push_back({ Vec3(25.0f, 20.0f, 25.0f), Vec3(0.0f, -1.0f, 0.0f) });
-	data.objects.emplace_back("Light", light_mesh, 2, BVH::BuildOption_SAHSplitIntervals);
+	//Mesh dragon_mesh = GLTFLoader::Load("Assets/Models/Cube/Cube.gltf");
+	data.objects.emplace_back("Dragon", dragon_mesh, 3, BVH::BuildOption_SAHSplitIntervals);
 
 	Mesh ground_mesh;
 	ground_mesh.indices.push_back(0);
@@ -486,6 +517,19 @@ int main(int argc, char* argv[])
 	ground_mesh.vertices.push_back({ Vec3(1000.0f, -3.0f, -1000.0f), Vec3(0.0f, 1.0f, 0.0f) });
 	ground_mesh.vertices.push_back({ Vec3(1000.0f, -3.0f, 1000.0f), Vec3(0.0f, 1.0f, 0.0f) });
 	data.objects.emplace_back("Ground", ground_mesh, 1, BVH::BuildOption_SAHSplitIntervals);
+
+	Mesh light_mesh;
+	light_mesh.indices.push_back(0);
+	light_mesh.indices.push_back(1);
+	light_mesh.indices.push_back(2);
+	light_mesh.indices.push_back(2);
+	light_mesh.indices.push_back(3);
+	light_mesh.indices.push_back(0);
+	light_mesh.vertices.push_back({ Vec3(-25.0f, 20.0f, 25.0f), Vec3(0.0f, -1.0f, 0.0f) });
+	light_mesh.vertices.push_back({ Vec3(-25.0f, 20.0f, -25.0f), Vec3(0.0f, -1.0f, 0.0f) });
+	light_mesh.vertices.push_back({ Vec3(25.0f, 20.0f, -25.0f), Vec3(0.0f, -1.0f, 0.0f) });
+	light_mesh.vertices.push_back({ Vec3(25.0f, 20.0f, 25.0f), Vec3(0.0f, -1.0f, 0.0f) });
+	data.objects.emplace_back("Light", light_mesh, 2, BVH::BuildOption_SAHSplitIntervals);
 
 	std::chrono::high_resolution_clock::time_point curr_time = std::chrono::high_resolution_clock::now(),
 		last_time = std::chrono::high_resolution_clock::now();

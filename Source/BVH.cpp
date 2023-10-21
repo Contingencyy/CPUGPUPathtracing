@@ -118,7 +118,7 @@ bool BVH::Traverse(Ray& ray) const
 
 Triangle BVH::GetTriangle(uint32_t index) const
 {
-	return m_triangles[m_tri_indices[index]];
+	return m_triangles[index];
 }
 
 uint32_t BVH::GetMaxDepth() const
