@@ -39,7 +39,6 @@ private:
 	void Subdivide(uint32_t node_index, uint32_t depth);
 	float EvaluateSAH(BVHNode& node, uint32_t axis, float split_pos);
 	void Split(BVHNode& node, uint32_t axis, float split_pos, uint32_t depth);
-	void Intersect(Ray& ray, uint32_t node_index);
 
 private:
 	BVHBuildOption m_build_option = BVHBuildOption_SAHSplitIntervals;

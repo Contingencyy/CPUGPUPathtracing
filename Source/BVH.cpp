@@ -51,7 +51,65 @@ void BVH::Rebuild(BVHBuildOption build_option)
 
 void BVH::Traverse(Ray& ray)
 {
-	Intersect(ray, 0);
+	BVHNode* node = &m_nodes[0];
+	BVHNode* stack[64] = {};
+	uint32_t stack_ptr = 0;
+
+	while (true)
+	{
+		// The current node is a leaf node, we need to test intersections with its primitives
+		if (node->prim_count > 0)
+		{
+			for (uint32_t tri_idx = node->left_first; tri_idx < node->left_first + node->prim_count; ++tri_idx)
+			{
+				const Triangle& tri = m_triangles[m_tri_indices[tri_idx]];
+				bool intersected = IntersectTriangle(tri, ray);
+
+				if (intersected)
+				{
+					ray.payload.tri_idx = m_tri_indices[tri_idx];
+				}
+			}
+
+			if (stack_ptr == 0)
+				break;
+			else
+				node = stack[--stack_ptr];
+			continue;
+		}
+
+		BVHNode* left_child = &m_nodes[node->left_first];
+		BVHNode* right_child = &m_nodes[node->left_first + 1];
+
+		// Get the distance to both the left and right child nodes
+		float left_dist = IntersectAABB(left_child->bounds, ray);
+		float right_dist = IntersectAABB(right_child->bounds, ray);
+
+		// Swap the left and right children so that we now have the closest in the left child
+		if (left_dist > right_dist)
+		{
+			std::swap(left_dist, right_dist);
+			std::swap(left_child, right_child);
+		}
+
+		// If the closest distance is invalid, we have not hit any boxes, so we can continue traversing the stack
+		if (left_dist == 1e30f)
+		{
+			if (stack_ptr == 0)
+				break;
+			else
+				node = stack[--stack_ptr];
+		}
+		else
+		{
+			// We have intersected with a child node, now check the closest node first and push the other one to the stack
+			ray.payload.bvh_depth++;
+
+			node = left_child;
+			if (right_dist != 1e30f)
+				stack[stack_ptr++] = right_child;
+		}
+	}
 }
 
 Triangle BVH::GetTriangle(uint32_t index) const
@@ -241,35 +299,4 @@ void BVH::Split(BVHNode& node, uint32_t axis, float split_pos, uint32_t depth)
 
 	Subdivide(left_child_index, depth + 1);
 	Subdivide(right_child_index, depth + 1);
-}
-
-void BVH::Intersect(Ray& ray, uint32_t node_index)
-{
-	BVHNode& node = m_nodes[node_index];
-
-	if (!IntersectAABB(node.bounds, ray))
-	{
-		return;
-	}
-
-	ray.payload.bvh_depth += 1;
-
-	if (node.prim_count > 0)
-	{
-		for (uint32_t i = 0; i < node.prim_count; ++i)
-		{
-			const Triangle& tri = m_triangles[m_tri_indices[node.left_first + i]];
-			bool intersected = IntersectTriangle(tri, ray);
-
-			if (intersected)
-			{
-				ray.payload.tri_idx = m_tri_indices[node.left_first + i];
-			}
-		}
-	}
-	else
-	{
-		Intersect(ray, node.left_first);
-		Intersect(ray, node.left_first + 1);
-	}
 }

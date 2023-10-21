@@ -425,6 +425,7 @@ int main(int argc, char* argv[])
 	// Load mesh
 	GLTFLoader::Mesh dragon_mesh = GLTFLoader::Load("Assets/Models/Dragon/DragonAttenuation.gltf");
 
+	// Light
 	dragon_mesh.indices.push_back(dragon_mesh.vertices.size() + 0);
 	dragon_mesh.indices.push_back(dragon_mesh.vertices.size() + 1);
 	dragon_mesh.indices.push_back(dragon_mesh.vertices.size() + 2);
@@ -432,11 +433,25 @@ int main(int argc, char* argv[])
 	dragon_mesh.indices.push_back(dragon_mesh.vertices.size() + 3);
 	dragon_mesh.indices.push_back(dragon_mesh.vertices.size() + 0);
 
-	dragon_mesh.vertices.push_back({ Vec3(-2.0f, 5.0f, 2.0f) });
-	dragon_mesh.vertices.push_back({ Vec3(-2.0f, 5.0f, -2.0f) });
-	dragon_mesh.vertices.push_back({ Vec3(2.0f, 5.0f, -2.0f) });
-	dragon_mesh.vertices.push_back({ Vec3(2.0f, 5.0f, 2.0f) });
+	dragon_mesh.vertices.push_back({ Vec3(-20.0f, 20.0f, 20.0f) });
+	dragon_mesh.vertices.push_back({ Vec3(-20.0f, 20.0f, -20.0f) });
+	dragon_mesh.vertices.push_back({ Vec3(20.0f, 20.0f, -20.0f) });
+	dragon_mesh.vertices.push_back({ Vec3(20.0f, 20.0f, 20.0f) });
 
+	// Ground plane
+	dragon_mesh.indices.push_back(dragon_mesh.vertices.size() + 0);
+	dragon_mesh.indices.push_back(dragon_mesh.vertices.size() + 1);
+	dragon_mesh.indices.push_back(dragon_mesh.vertices.size() + 2);
+	dragon_mesh.indices.push_back(dragon_mesh.vertices.size() + 2);
+	dragon_mesh.indices.push_back(dragon_mesh.vertices.size() + 3);
+	dragon_mesh.indices.push_back(dragon_mesh.vertices.size() + 0);
+
+	dragon_mesh.vertices.push_back({ Vec3(-1000.0f, -5.0f, 1000.0f) });
+	dragon_mesh.vertices.push_back({ Vec3(-1000.0f, -5.0f, -1000.0f) });
+	dragon_mesh.vertices.push_back({ Vec3(1000.0f, -5.0f, -1000.0f) });
+	dragon_mesh.vertices.push_back({ Vec3(1000.0f, -5.0f, 1000.0f) });
+
+	// Build the BVH
 	data.bounding_volume_hierarchy.Build(dragon_mesh.vertices, dragon_mesh.indices, BVH::BVHBuildOption_SAHSplitIntervals);
 	data.bvh_build_option = BVH::BVHBuildOption_SAHSplitIntervals;
 

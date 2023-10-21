@@ -1,6 +1,6 @@
 #include "Primitives.h"
 
-bool IntersectAABB(const AABB& aabb, Ray& ray)
+float IntersectAABB(const AABB& aabb, Ray& ray)
 {
 	float tx1 = (aabb.pmin.x - ray.origin.x) * ray.inv_direction.x, tx2 = (aabb.pmax.x - ray.origin.x) * ray.inv_direction.x;
 	float tmin = std::min(tx1, tx2), tmax = std::max(tx1, tx2);
@@ -9,7 +9,11 @@ bool IntersectAABB(const AABB& aabb, Ray& ray)
 	float tz1 = (aabb.pmin.z - ray.origin.z) * ray.inv_direction.z, tz2 = (aabb.pmax.z - ray.origin.z) * ray.inv_direction.z;
 	tmin = std::max(tmin, std::min(tz1, tz2)), tmax = std::min(tmax, std::max(tz1, tz2));
 
-	return tmax >= tmin && tmin < ray.t && tmax > 0.0f;
+	if (tmax >= tmin && tmin < ray.t && tmax > 0.0f)
+	{
+		return tmin;
+	}
+	return 1e30f;
 }
 
 float GetAABBVolume(const AABB& aabb)

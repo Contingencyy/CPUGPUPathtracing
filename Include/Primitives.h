@@ -73,7 +73,7 @@ struct Ray
 	} payload;
 };
 
-bool IntersectAABB(const AABB& aabb, Ray& ray);
+float IntersectAABB(const AABB& aabb, Ray& ray);
 float GetAABBVolume(const AABB& aabb);
 void GrowAABB(AABB& aabb, const Vec3& p);
 
