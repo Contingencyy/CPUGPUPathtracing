@@ -2,6 +2,7 @@
 #include "MathLib.h"
 
 struct Vertex;
+struct Mesh;
 
 #include <vector>
 #include <string>
@@ -9,12 +10,6 @@ struct Vertex;
 namespace GLTFLoader
 {
 
-	struct Mesh
-	{
-		std::vector<Vertex> vertices;
-		std::vector<uint32_t> indices;
-	};
-
-	GLTFLoader::Mesh Load(const std::string& filepath);
+	Mesh Load(const std::string& filepath);
 
 }

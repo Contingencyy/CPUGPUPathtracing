@@ -7,23 +7,24 @@
 class BVH
 {
 public:
-	enum BVHBuildOption
+	enum BuildOption
 	{
-		BVHBuildOption_NaiveSplit,
-		BVHBuildOption_SAHSplitIntervals,
-		BVHBuildOption_SAHSplitPrimitives,
-		BVHBuildOption_NumOptions
+		BuildOption_NaiveSplit,
+		BuildOption_SAHSplitIntervals,
+		BuildOption_SAHSplitPrimitives,
+		BuildOption_NumOptions
 	};
 
 public:
 	BVH() = default;
 
-	void Build(const std::vector<Vertex>& vertices, const std::vector<uint32_t>& indices, BVHBuildOption build_option);
-	void Rebuild(BVHBuildOption build_option);
-	void Traverse(Ray& ray);
+	void Build(const std::vector<Vertex>& vertices, const std::vector<uint32_t>& indices, BuildOption build_option);
+	void Rebuild();
+	bool Traverse(Ray& ray) const;
 
 	Triangle GetTriangle(uint32_t index) const;
 	uint32_t GetMaxDepth() const;
+	BuildOption& GetBuildOption() { return m_build_option; }
 
 private:
 	struct BVHNode
@@ -41,7 +42,7 @@ private:
 	void Split(BVHNode& node, uint32_t axis, float split_pos, uint32_t depth);
 
 private:
-	BVHBuildOption m_build_option = BVHBuildOption_SAHSplitIntervals;
+	BuildOption m_build_option = BuildOption_SAHSplitIntervals;
 
 	std::vector<BVHNode> m_nodes;
 	uint32_t m_current_node = 0;

@@ -17,9 +17,9 @@ static T* CGLTFGetDataPointer(const cgltf_accessor* accessor)
 	return (T*)base_ptr;
 }
 
-GLTFLoader::Mesh GLTFLoader::Load(const std::string& filepath)
+Mesh GLTFLoader::Load(const std::string& filepath)
 {
-	GLTFLoader::Mesh mesh;
+	Mesh mesh;
 
 	cgltf_options options = {};
 	cgltf_data* data = nullptr;

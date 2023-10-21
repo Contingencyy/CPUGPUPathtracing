@@ -7,6 +7,8 @@
 #define INTERSECTION_TRIANGLE_INSIDE_OUTSIDE_TEST 0
 #define INTERSECTION_TRIANGLE_MOELLER_TRUMBORE 1
 
+#include <vector>
+
 struct Vertex
 {
 	Vec3 pos;
@@ -19,6 +21,12 @@ enum PrimitiveType : uint8_t
 	PrimitiveType_Triangle,
 	PrimitiveType_AABB,
 	PrimitiveType_NumTypes
+};
+
+struct Mesh
+{
+	std::vector<Vertex> vertices;
+	std::vector<uint32_t> indices;
 };
 
 struct Primitive
@@ -68,7 +76,8 @@ struct Ray
 
 	struct Payload
 	{
-		uint32_t tri_idx = ~0u;
+		uint32_t obj_idx = ~0u;
+		uint32_t tri_idx = 0;
 		uint32_t bvh_depth = 0;
 	} payload;
 };

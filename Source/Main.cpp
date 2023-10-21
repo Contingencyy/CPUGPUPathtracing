@@ -83,6 +83,7 @@ struct Material
 {
 	Vec3 albedo = Vec3(0.0f);
 	Vec3 emissive = Vec3(0.0f);
+	float intensity = 1.0f;
 	float specular = 0.0f;
 	float refractivity = 0.0f;
 	Vec3 absorption = Vec3(0.0f);
@@ -192,6 +193,19 @@ const std::vector<const char*> bvh_build_option_names =
 	"Naive split", "SAH split intervals", "SAH split primitives"
 };
 
+struct Object
+{
+	Object(const char* name, const Mesh& mesh, uint32_t mat_index, BVH::BuildOption build_option)
+		: name(name), material_index(mat_index)
+	{
+		bounding_volume_hierarchy.Build(mesh.vertices, mesh.indices, build_option);
+	}
+
+	BVH bounding_volume_hierarchy;
+	uint32_t material_index = 0;
+	const char* name = "";
+};
+
 struct Data
 {
 	// Render data
@@ -200,8 +214,7 @@ struct Data
 	uint32_t num_accumulated = 0;
 	bool pause_rendering = false;
 
-	BVH bounding_volume_hierarchy;
-	BVH::BVHBuildOption bvh_build_option;
+	std::vector<Object> objects;
 
 	std::vector<Material> materials;
 	Camera camera;
@@ -238,7 +251,13 @@ void Update(float dt)
 
 void IntersectScene(Ray& ray)
 {
-	data.bounding_volume_hierarchy.Traverse(ray);
+	for (uint32_t obj_idx = 0; obj_idx < data.objects.size(); ++obj_idx)
+	{
+		bool hit = data.objects[obj_idx].bounding_volume_hierarchy.Traverse(ray);
+
+		if (hit)
+			ray.payload.obj_idx = obj_idx;
+	}
 }
 
 Vec3 GetObjectSurfaceNormalAtPoint(PrimitiveType type, void* prim, const Vec3& point)
@@ -260,31 +279,35 @@ Vec4 TraceRay(Ray& ray, uint8_t depth)
 
 	IntersectScene(ray);
 
+	// We have not hit anything, so we return black (or sky color)
+	if (ray.payload.obj_idx == ~0u)
+		return Vec4(0.0f);
+
 	if (depth == 0 && data.debug_view == DebugRenderView_BVHDepth)
 	{
 		// Lerp from white to dark red based on bvh depth
 		Vec4 bvh_depth_color = Vec4(1.0f);
-		bvh_depth_color.xyz = Vec3Lerp(Vec3(0.0f, 1.0f, 0.0f), Vec3(1.0f, 0.0f, 0.0f), std::min(1.0f, (float)ray.payload.bvh_depth / (data.bounding_volume_hierarchy.GetMaxDepth() + 1)));
+		bvh_depth_color.xyz = Vec3Lerp(Vec3(0.0f, 1.0f, 0.0f), Vec3(1.0f, 0.0f, 0.0f), std::min(1.0f,
+			(float)ray.payload.bvh_depth / (data.objects[ray.payload.obj_idx].bounding_volume_hierarchy.GetMaxDepth() + 1)));
 		return bvh_depth_color;
 	}
 
-	// We have not hit anything, so we return black (or sky color)
-	if (ray.payload.tri_idx == ~0u)
-		return Vec4(0.0f);
-
 	// If we have hit a light source, we return its emissive color
-	const Triangle& tri = data.bounding_volume_hierarchy.GetTriangle(ray.payload.tri_idx);
-	Material& surface_material = data.materials[0];
+	const Triangle& tri = data.objects[ray.payload.obj_idx].bounding_volume_hierarchy.GetTriangle(ray.payload.tri_idx);
+	const Material& surface_material = data.materials[data.objects[ray.payload.obj_idx].material_index];
 
 	if (surface_material.is_light)
 	{
-		return Vec4(surface_material.emissive, 1.0f);
+		return Vec4(surface_material.emissive * surface_material.intensity, 1.0f);
 	}
 
 	Vec4 final_color(0.0f, 0.0f, 0.0f, 1.0f);
 
 	Vec3 surface_point = ray.origin + ray.t * ray.direction;
 	Vec3 surface_normal = GetTriangleNormalAtPoint(tri, surface_point);
+
+	if (ray.payload.obj_idx == 2)
+		surface_normal = Vec3(0.0f, 1.0f, 0.0f);
 
 	Vec3 diffuse(0.0f);
 	Vec3 specular(0.0f);
@@ -298,7 +321,7 @@ Vec4 TraceRay(Ray& ray, uint8_t depth)
 	float cosi = Vec3Dot(diffuse_dir, surface_normal);
 	Vec4 irradiance = cosi * TraceRay(diffuse_ray, depth + 1);
 
-	if (diffuse_ray.payload.tri_idx != ~0u)
+	if (diffuse_ray.payload.obj_idx != ~0u)
 	{
 		Vec3 diffuse_brdf = surface_material.albedo * INV_PI;
 		diffuse = 2.0f * PI * diffuse_brdf * irradiance.xyz;
@@ -397,8 +420,8 @@ void Render()
 int main(int argc, char* argv[])
 {
 	Window::CreateWindowArgs window_args = {};
-	window_args.width = 1280;
-	window_args.height = 720;
+	window_args.width = 640;
+	window_args.height = 480;
 	window_args.title = L"Graphics Advanced Masterclass";
 	Window::Create(window_args);
 
@@ -417,43 +440,40 @@ int main(int argc, char* argv[])
 	data.camera = Camera(Vec3(0.0f, 0.0f, 8.0f), Vec3(0.0f, 0.0f, -1.0f), 60.0f, (float)framebuffer_size.x / framebuffer_size.y);
 
 	//data.materials.emplace_back(Vec3(0.4f, 0.1f, 0.1f), Vec3(0.0f), 0.0f, 0.0f, Vec3(0.0f), 1.0f, false);
-	//data.materials.emplace_back(Vec3(0.1f, 0.1f, 0.4f), Vec3(0.0f), 0.0f, 0.0f, Vec3(0.0f), 1.0f, false);
-	//data.materials.emplace_back(Vec3(0.4f), Vec3(0.0f), 0.0f, 0.0f, Vec3(0.0f), 1.0f, false);
-	data.materials.emplace_back(Vec3(1.0f), Vec3(1.0f, 0.95f, 0.8f), 0.0f, 0.0f, Vec3(0.0f), 1.0f, true);
+	data.materials.emplace_back(Vec3(0.1f, 0.1f, 0.4f), Vec3(0.0f), 1.0f, 0.0f, 0.0f, Vec3(0.0f), 1.0f, false);
+	data.materials.emplace_back(Vec3(0.4f), Vec3(0.0f), 1.0f, 0.0f, 0.0f, Vec3(0.0f), 1.0f, false);
+	data.materials.emplace_back(Vec3(1.0f), Vec3(1.0f, 0.95f, 0.8f), 3.0f, 0.0f, 0.0f, Vec3(0.0f), 1.0f, true);
 	//data.materials.emplace_back(Vec4(0.2f, 0.2f, 0.2f, 1.0f), 0.0f, 0.8f, Vec3(0.9f, 0.2f, 0.3f), 1.517f);
 
-	// Load mesh
-	GLTFLoader::Mesh dragon_mesh = GLTFLoader::Load("Assets/Models/Dragon/DragonAttenuation.gltf");
+	// Load mesh and build its BVH
+	Mesh dragon_mesh = GLTFLoader::Load("Assets/Models/Dragon/DragonAttenuation.gltf");
+	data.objects.emplace_back("Dragon", dragon_mesh, 0, BVH::BuildOption_SAHSplitIntervals);
+	
+	Mesh light_mesh;
+	light_mesh.indices.push_back(0);
+	light_mesh.indices.push_back(1);
+	light_mesh.indices.push_back(2);
+	light_mesh.indices.push_back(2);
+	light_mesh.indices.push_back(3);
+	light_mesh.indices.push_back(0);
+	light_mesh.vertices.push_back({ Vec3(-20.0f, 20.0f, 20.0f) });
+	light_mesh.vertices.push_back({ Vec3(-20.0f, 20.0f, -20.0f) });
+	light_mesh.vertices.push_back({ Vec3(20.0f, 20.0f, -20.0f) });
+	light_mesh.vertices.push_back({ Vec3(20.0f, 20.0f, 20.0f) });
+	data.objects.emplace_back("Light", light_mesh, 2, BVH::BuildOption_SAHSplitIntervals);
 
-	// Light
-	dragon_mesh.indices.push_back(dragon_mesh.vertices.size() + 0);
-	dragon_mesh.indices.push_back(dragon_mesh.vertices.size() + 1);
-	dragon_mesh.indices.push_back(dragon_mesh.vertices.size() + 2);
-	dragon_mesh.indices.push_back(dragon_mesh.vertices.size() + 2);
-	dragon_mesh.indices.push_back(dragon_mesh.vertices.size() + 3);
-	dragon_mesh.indices.push_back(dragon_mesh.vertices.size() + 0);
-
-	dragon_mesh.vertices.push_back({ Vec3(-20.0f, 20.0f, 20.0f) });
-	dragon_mesh.vertices.push_back({ Vec3(-20.0f, 20.0f, -20.0f) });
-	dragon_mesh.vertices.push_back({ Vec3(20.0f, 20.0f, -20.0f) });
-	dragon_mesh.vertices.push_back({ Vec3(20.0f, 20.0f, 20.0f) });
-
-	// Ground plane
-	dragon_mesh.indices.push_back(dragon_mesh.vertices.size() + 0);
-	dragon_mesh.indices.push_back(dragon_mesh.vertices.size() + 1);
-	dragon_mesh.indices.push_back(dragon_mesh.vertices.size() + 2);
-	dragon_mesh.indices.push_back(dragon_mesh.vertices.size() + 2);
-	dragon_mesh.indices.push_back(dragon_mesh.vertices.size() + 3);
-	dragon_mesh.indices.push_back(dragon_mesh.vertices.size() + 0);
-
-	dragon_mesh.vertices.push_back({ Vec3(-1000.0f, -5.0f, 1000.0f) });
-	dragon_mesh.vertices.push_back({ Vec3(-1000.0f, -5.0f, -1000.0f) });
-	dragon_mesh.vertices.push_back({ Vec3(1000.0f, -5.0f, -1000.0f) });
-	dragon_mesh.vertices.push_back({ Vec3(1000.0f, -5.0f, 1000.0f) });
-
-	// Build the BVH
-	data.bounding_volume_hierarchy.Build(dragon_mesh.vertices, dragon_mesh.indices, BVH::BVHBuildOption_SAHSplitIntervals);
-	data.bvh_build_option = BVH::BVHBuildOption_SAHSplitIntervals;
+	Mesh ground_mesh;
+	ground_mesh.indices.push_back(0);
+	ground_mesh.indices.push_back(1);
+	ground_mesh.indices.push_back(2);
+	ground_mesh.indices.push_back(2);
+	ground_mesh.indices.push_back(3);
+	ground_mesh.indices.push_back(0);
+	ground_mesh.vertices.push_back({ Vec3(-1000.0f, -2.0f, 1000.0f) });
+	ground_mesh.vertices.push_back({ Vec3(-1000.0f, -2.0f, -1000.0f) });
+	ground_mesh.vertices.push_back({ Vec3(1000.0f, -2.0f, -1000.0f) });
+	ground_mesh.vertices.push_back({ Vec3(1000.0f, -2.0f, 1000.0f) });
+	data.objects.emplace_back("Ground", ground_mesh, 1, BVH::BuildOption_SAHSplitIntervals);
 
 	std::chrono::high_resolution_clock::time_point curr_time = std::chrono::high_resolution_clock::now(),
 		last_time = std::chrono::high_resolution_clock::now();
@@ -499,32 +519,42 @@ int main(int argc, char* argv[])
 		}
 
 		ImGui::SetNextItemOpen(true, ImGuiCond_Once);
-		if (ImGui::CollapsingHeader("Bounding Volume Hierarchy"))
+		if (ImGui::CollapsingHeader("Scene"))
 		{
 			ImGui::Indent(10.0f);
 
-			ImGui::Text("BVH Depth: %u", data.bounding_volume_hierarchy.GetMaxDepth());
-			if (ImGui::Button("Rebuild BVH"))
+			for (auto& obj : data.objects)
 			{
-				data.bounding_volume_hierarchy.Rebuild(data.bvh_build_option);
-			}
-			if (ImGui::BeginCombo("Build options", bvh_build_option_names[data.bvh_build_option]))
-			{
-				for (size_t i = 0; i < BVH::BVHBuildOption_NumOptions; ++i)
+				if (ImGui::CollapsingHeader(obj.name))
 				{
-					bool is_selected = i == data.bvh_build_option;
-					if (ImGui::Selectable(bvh_build_option_names[i], is_selected))
+					ImGui::Indent(10.0f);
+
+					ImGui::Text("BVH Depth: %u", obj.bounding_volume_hierarchy.GetMaxDepth());
+					if (ImGui::BeginCombo("Build options", bvh_build_option_names[obj.bounding_volume_hierarchy.GetBuildOption()]))
 					{
-						data.bvh_build_option = (BVH::BVHBuildOption)i;
+						for (size_t i = 0; i < BVH::BuildOption_NumOptions; ++i)
+						{
+							bool is_selected = i == obj.bounding_volume_hierarchy.GetBuildOption();
+							if (ImGui::Selectable(bvh_build_option_names[i], is_selected))
+							{
+								obj.bounding_volume_hierarchy.GetBuildOption() = (BVH::BuildOption)i;
+							}
+
+							if (is_selected)
+							{
+								ImGui::SetItemDefaultFocus();
+							}
+						}
+
+						ImGui::EndCombo();
+					}
+					if (ImGui::Button("Rebuild BVH"))
+					{
+						obj.bounding_volume_hierarchy.Rebuild();
 					}
 
-					if (is_selected)
-					{
-						ImGui::SetItemDefaultFocus();
-					}
+					ImGui::Unindent(10.0f);
 				}
-
-				ImGui::EndCombo();
 			}
 
 			ImGui::Unindent(10.0f);

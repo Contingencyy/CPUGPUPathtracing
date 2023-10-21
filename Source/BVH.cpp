@@ -2,7 +2,7 @@
 
 #include <algorithm>
 
-void BVH::Build(const std::vector<Vertex>& vertices, const std::vector<uint32_t>& indices, BVHBuildOption build_option)
+void BVH::Build(const std::vector<Vertex>& vertices, const std::vector<uint32_t>& indices, BuildOption build_option)
 {
 	m_build_option = build_option;
 
@@ -36,9 +36,8 @@ void BVH::Build(const std::vector<Vertex>& vertices, const std::vector<uint32_t>
 	Subdivide(0, 0);
 }
 
-void BVH::Rebuild(BVHBuildOption build_option)
+void BVH::Rebuild()
 {
-	m_build_option = build_option;
 	m_current_node = 0;
 
 	BVHNode& root_node = m_nodes[m_current_node++];
@@ -49,10 +48,12 @@ void BVH::Rebuild(BVHBuildOption build_option)
 	Subdivide(0, 0);
 }
 
-void BVH::Traverse(Ray& ray)
+bool BVH::Traverse(Ray& ray) const
 {
-	BVHNode* node = &m_nodes[0];
-	BVHNode* stack[64] = {};
+	bool result = false;
+
+	const BVHNode* node = &m_nodes[0];
+	const BVHNode* stack[64] = {};
 	uint32_t stack_ptr = 0;
 
 	while (true)
@@ -68,6 +69,7 @@ void BVH::Traverse(Ray& ray)
 				if (intersected)
 				{
 					ray.payload.tri_idx = m_tri_indices[tri_idx];
+					result = true;
 				}
 			}
 
@@ -78,8 +80,8 @@ void BVH::Traverse(Ray& ray)
 			continue;
 		}
 
-		BVHNode* left_child = &m_nodes[node->left_first];
-		BVHNode* right_child = &m_nodes[node->left_first + 1];
+		const BVHNode* left_child = &m_nodes[node->left_first];
+		const BVHNode* right_child = &m_nodes[node->left_first + 1];
 
 		// Get the distance to both the left and right child nodes
 		float left_dist = IntersectAABB(left_child->bounds, ray);
@@ -110,6 +112,8 @@ void BVH::Traverse(Ray& ray)
 				stack[stack_ptr++] = right_child;
 		}
 	}
+
+	return result;
 }
 
 Triangle BVH::GetTriangle(uint32_t index) const
@@ -141,7 +145,7 @@ void BVH::Subdivide(uint32_t node_index, uint32_t depth)
 {
 	m_max_depth = std::max(m_max_depth, depth);
 
-	if (m_build_option == BVHBuildOption_NaiveSplit)
+	if (m_build_option == BuildOption_NaiveSplit)
 	{
 		BVHNode& node = m_nodes[node_index];
 		if (node.prim_count <= 2)
@@ -158,7 +162,7 @@ void BVH::Subdivide(uint32_t node_index, uint32_t depth)
 		float split_pos = node.bounds.pmin.xyz[axis] + extent.xyz[axis] * 0.5f;
 		Split(node, axis, split_pos, depth);
 	}
-	else if (m_build_option == BVHBuildOption_SAHSplitIntervals)
+	else if (m_build_option == BuildOption_SAHSplitIntervals)
 	{
 		BVHNode& node = m_nodes[node_index];
 		float parent_cost = GetAABBVolume(node.bounds) * node.prim_count;
@@ -193,7 +197,7 @@ void BVH::Subdivide(uint32_t node_index, uint32_t depth)
 
 		Split(node, cheapest_split_axis, cheapest_split_pos, depth);
 	}
-	else if (m_build_option == BVHBuildOption_SAHSplitPrimitives)
+	else if (m_build_option == BuildOption_SAHSplitPrimitives)
 	{
 		BVHNode& node = m_nodes[node_index];
 		float parent_cost = GetAABBVolume(node.bounds) * node.prim_count;
