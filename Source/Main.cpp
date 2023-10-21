@@ -189,7 +189,7 @@ const std::vector<const char*> debug_render_view_names =
 
 const std::vector<const char*> bvh_build_option_names =
 {
-	"Naive split", "SAH split"
+	"Naive split", "SAH split intervals", "SAH split primitives"
 };
 
 struct Data
@@ -437,8 +437,8 @@ int main(int argc, char* argv[])
 	dragon_mesh.vertices.push_back({ Vec3(2.0f, 5.0f, -2.0f) });
 	dragon_mesh.vertices.push_back({ Vec3(2.0f, 5.0f, 2.0f) });
 
-	data.bounding_volume_hierarchy.Build(dragon_mesh.vertices, dragon_mesh.indices, BVH::BVHBuildOption_SAHSplit);
-	data.bvh_build_option = BVH::BVHBuildOption_SAHSplit;
+	data.bounding_volume_hierarchy.Build(dragon_mesh.vertices, dragon_mesh.indices, BVH::BVHBuildOption_SAHSplitIntervals);
+	data.bvh_build_option = BVH::BVHBuildOption_SAHSplitIntervals;
 
 	std::chrono::high_resolution_clock::time_point curr_time = std::chrono::high_resolution_clock::now(),
 		last_time = std::chrono::high_resolution_clock::now();

@@ -138,13 +138,92 @@ void BVH::Subdivide(uint32_t node_index, uint32_t depth)
 		Subdivide(left_child_index, depth + 1);
 		Subdivide(right_child_index, depth + 1);
 	}
-	else if (m_build_option == BVHBuildOption_SAHSplit)
+	else if (m_build_option == BVHBuildOption_SAHSplitIntervals)
 	{
-		// Surface area heuristic
-		// Go through each primitive, and for each axis, run the split plane through their centroid
-		// If the split is less expensive than the previous one, update the split values kept outside of the loop
-		// Note: The cost of a split is determined by the area of the left and right split box plus the number of primitives in each
-		// We do not try to find the most optimal splits across all levels of the BVH, we simply assume that the current level is the final split (greedy)
+		BVHNode& node = m_nodes[node_index];
+		float parent_node_cost = GetAABBVolume(node.bounds) * node.prim_count;
+
+		bool cheaper_split_found = false;
+		float cheapest_split_cost = 1e34f;
+		BVHNode cheapest_left_node = {};
+		BVHNode cheapest_right_node = {};
+
+		BVHNode current_left_node = {};
+		BVHNode current_right_node = {};
+
+		for (uint32_t split_idx = 0; split_idx < 8; ++split_idx)
+		{
+			for (uint32_t curr_axis = 0; curr_axis < 3; ++curr_axis)
+			{
+				m_curr_tri_indices = m_tri_indices;
+
+				float axis_width = node.bounds.pmax.xyz[curr_axis] - node.bounds.pmin.xyz[curr_axis];
+				float split_pos = axis_width * ((float)split_idx / 8) + node.bounds.pmin.xyz[curr_axis];
+
+				int32_t i = node.left_first;
+				int32_t j = i + node.prim_count - 1;
+
+				while (i <= j)
+				{
+					if (m_centroids[m_curr_tri_indices[i]].xyz[curr_axis] < split_pos)
+					{
+						i++;
+					}
+					else
+					{
+						std::swap(m_curr_tri_indices[i], m_curr_tri_indices[j--]);
+					}
+				}
+
+				uint32_t left_count = i - node.left_first;
+				if (left_count == 0 || left_count == node.prim_count)
+					continue;
+
+				current_left_node.left_first = node.left_first;
+				current_left_node.prim_count = left_count;
+				current_right_node.left_first = i;
+				current_right_node.prim_count = node.prim_count - left_count;
+
+				CalculateNodeBounds(current_left_node, m_curr_tri_indices);
+				CalculateNodeBounds(current_right_node, m_curr_tri_indices);
+
+				float split_cost = GetAABBVolume(current_left_node.bounds) * current_left_node.prim_count +
+					GetAABBVolume(current_right_node.bounds) * current_right_node.prim_count;
+
+				// We update the cheapest split if the split is cheaper than the parent cost
+				if (split_cost < parent_node_cost && split_cost < cheapest_split_cost)
+				{
+					cheaper_split_found = true;
+					cheapest_split_cost = split_cost;
+
+					cheapest_left_node = current_left_node;
+					cheapest_right_node = current_right_node;
+					m_cheapest_tri_indices = m_curr_tri_indices;
+				}
+			}
+		}
+
+		// We can terminate the splitting, no cheaper split was found
+		if (!cheaper_split_found)
+		{
+			return;
+		}
+
+		uint32_t left_child_index = m_current_node++;
+		uint32_t right_child_index = m_current_node++;
+
+		m_nodes[left_child_index] = cheapest_left_node;
+		m_nodes[right_child_index] = cheapest_right_node;
+		m_tri_indices = m_cheapest_tri_indices;
+
+		node.left_first = left_child_index;
+		node.prim_count = 0;
+
+		Subdivide(left_child_index, depth + 1);
+		Subdivide(right_child_index, depth + 1);
+	}
+	else if (m_build_option == BVHBuildOption_SAHSplitPrimitives)
+	{
 		BVHNode& node = m_nodes[node_index];
 		float parent_node_cost = GetAABBVolume(node.bounds) * node.prim_count;
 

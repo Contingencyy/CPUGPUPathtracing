@@ -10,7 +10,8 @@ public:
 	enum BVHBuildOption
 	{
 		BVHBuildOption_NaiveSplit,
-		BVHBuildOption_SAHSplit,
+		BVHBuildOption_SAHSplitIntervals,
+		BVHBuildOption_SAHSplitPrimitives,
 		BVHBuildOption_NumOptions
 	};
 
@@ -39,7 +40,7 @@ private:
 	void Intersect(Ray& ray, uint32_t node_index);
 
 private:
-	BVHBuildOption m_build_option = BVHBuildOption_SAHSplit;
+	BVHBuildOption m_build_option = BVHBuildOption_SAHSplitIntervals;
 
 	std::vector<BVHNode> m_nodes;
 	uint32_t m_current_node = 0;
