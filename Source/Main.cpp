@@ -218,7 +218,18 @@ struct Data
 
 	std::vector<Material> materials;
 	Camera camera;
+
 	DebugRenderView debug_view = DebugRenderView_None;
+
+	struct Statistics
+	{
+		uint32_t traced_rays = 0;
+
+		void Reset()
+		{
+			traced_rays = 0;
+		}
+	} stats;
 } static data;
 
 static void ResetAccumulator()
@@ -256,7 +267,9 @@ void IntersectScene(Ray& ray)
 		bool hit = data.objects[obj_idx].bounding_volume_hierarchy.Traverse(ray);
 
 		if (hit)
+		{
 			ray.payload.obj_idx = obj_idx;
+		}
 	}
 }
 
@@ -277,20 +290,21 @@ Vec4 TraceRay(Ray& ray, uint8_t depth)
 	if (depth == MAX_RAY_DEPTH)
 		return Vec4(0.0f);
 
+	data.stats.traced_rays++;
 	IntersectScene(ray);
-
-	// We have not hit anything, so we return black (or sky color)
-	if (ray.payload.obj_idx == ~0u)
-		return Vec4(0.0f);
 
 	if (depth == 0 && data.debug_view == DebugRenderView_BVHDepth)
 	{
 		// Lerp from white to dark red based on bvh depth
 		Vec4 bvh_depth_color = Vec4(1.0f);
-		bvh_depth_color.xyz = Vec3Lerp(Vec3(0.0f, 1.0f, 0.0f), Vec3(1.0f, 0.0f, 0.0f), std::min(1.0f,
-			(float)ray.payload.bvh_depth / (data.objects[ray.payload.obj_idx].bounding_volume_hierarchy.GetMaxDepth() + 1)));
+		bvh_depth_color.xyz = Vec3Lerp(Vec3(0.0f, 1.0f, 0.0f), Vec3(1.0f, 0.0f, 0.0f), std::min(1.0f, (float)ray.payload.bvh_depth / 30.0f));
+
 		return bvh_depth_color;
 	}
+
+	// We have not hit anything, so we return black (or sky color)
+	if (ray.payload.obj_idx == ~0u)
+		return Vec4(0.0f);
 
 	// If we have hit a light source, we return its emissive color
 	const Triangle& tri = data.objects[ray.payload.obj_idx].bounding_volume_hierarchy.GetTriangle(ray.payload.tri_idx);
@@ -369,6 +383,11 @@ Vec4 TraceRay(Ray& ray, uint8_t depth)
 
 void Render()
 {
+	if (data.pause_rendering)
+	{
+		return;
+	}
+
 	UVec2 framebuffer_size = Window::GetFramebufferSize();
 	UVec2 job_size(16, 16);
 	Vec2 inv_framebuffer_size(1.0f / framebuffer_size.x, 1.0f / framebuffer_size.y);
@@ -379,32 +398,28 @@ void Render()
 		uint32_t first_x = (args.job_index * job_size.x) % framebuffer_size.x;
 		uint32_t first_y = ((args.job_index * job_size.x) / framebuffer_size.x) * job_size.y;
 
-		for (uint32_t y = first_y; y < first_y + job_size.y; ++y)
-		{
-			for (uint32_t x = first_x; x < first_x + job_size.x; ++x)
-			{
-				const float u = (float)x * inv_framebuffer_size.x;
-				const float v = (float)y * inv_framebuffer_size.y;
+		for (uint32_t y = first_y; y < first_y + job_size.y; y += 4)
+			for (uint32_t x = first_x; x < first_x + job_size.x; x += 4)
+				for (uint32_t v = 0; v < 4; ++v)
+					for (uint32_t u = 0; u < 4; ++u)
+					{
+						const float screen_u = (float)(x + u) * inv_framebuffer_size.x;
+						const float screen_v = (float)(y + v) * inv_framebuffer_size.y;
 
-				if (data.pause_rendering)
-				{
-					return;
-				}
-				
-				Ray ray = data.camera.GetRay(u, v);
-				Vec4 final_color = TraceRay(ray, 0);
+						Ray ray = data.camera.GetRay(screen_u, screen_v);
+						Vec4 final_color = TraceRay(ray, 0);
 
-				if (data.debug_view == DebugRenderView_None)
-				{
-					data.accumulator[y * framebuffer_size.x + x] += final_color;
-					data.pixels[y * framebuffer_size.x + x] = Vec4ToUint(data.accumulator[y * framebuffer_size.x + x] / data.num_accumulated);
-				}
-				else
-				{
-					data.pixels[y * framebuffer_size.x + x] = Vec4ToUint(final_color);
-				}
-			}
-		}
+						uint32_t framebuffer_pos = (y + v) * framebuffer_size.x + (x + u);
+						if (data.debug_view == DebugRenderView_None)
+						{
+							data.accumulator[framebuffer_pos] += final_color;
+							data.pixels[framebuffer_pos] = Vec4ToUint(data.accumulator[framebuffer_pos] / data.num_accumulated);
+						}
+						else
+						{
+							data.pixels[framebuffer_pos] = Vec4ToUint(final_color);
+						}
+					}
 	};
 
 	size_t pixel_count = framebuffer_size.x * framebuffer_size.y;
@@ -496,6 +511,7 @@ int main(int argc, char* argv[])
 			ResetAccumulator();
 		}
 		ImGui::Text("Frame time (CPU): %.3f ms", delta_time.count() * 1000.0f);
+		ImGui::Text("Traced ray count: %u", data.stats.traced_rays);
 		if (ImGui::BeginCombo("Debug render view", debug_render_view_names[data.debug_view]))
 		{
 			for (size_t i = 0; i < DebugRenderView_NumViews; ++i)
@@ -564,6 +580,7 @@ int main(int argc, char* argv[])
 		ImGui::EndFrame();
 
 		last_time = curr_time;
+		data.stats.Reset();
 	}
 
 	ThreadPool::Exit();
