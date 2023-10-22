@@ -1,10 +1,9 @@
 #include "GLTFLoader.h"
 #include "Primitives.h"
+#include "Common.h"
 
 #define CGLTF_IMPLEMENTATION
 #include "cgltf/cgltf.h"
-
-#include <stdexcept>
 
 template<typename T>
 static T* CGLTFGetDataPointer(const cgltf_accessor* accessor)
@@ -27,7 +26,7 @@ Mesh GLTFLoader::Load(const std::string& filepath)
 
 	if (parsed != cgltf_result_success)
 	{
-		throw std::runtime_error("Could not load GLTF");
+		EXCEPT("GLTFLoader", "Could not load GLTF model {}", filepath.c_str());
 	}
 
 	cgltf_load_buffers(&options, data, filepath.c_str());

@@ -84,8 +84,8 @@ bool BVH::Traverse(Ray& ray) const
 		const BVHNode* right_child = &m_nodes[node->left_first + 1];
 
 		// Get the distance to both the left and right child nodes
-		float left_dist = IntersectAABB(left_child->bounds, ray);
-		float right_dist = IntersectAABB(right_child->bounds, ray);
+		float left_dist = IntersectAABB_SSE(left_child->aabb_min4, left_child->aabb_max4, ray);
+		float right_dist = IntersectAABB_SSE(right_child->aabb_min4, right_child->aabb_max4, ray);
 
 		// Swap the left and right children so that we now have the closest in the left child
 		if (left_dist > right_dist)
@@ -128,7 +128,8 @@ uint32_t BVH::GetMaxDepth() const
 
 void BVH::CalculateNodeBounds(BVHNode& node, const std::vector<uint32_t>& tri_indices)
 {
-	node.bounds = { Vec3(1e30f), Vec3(-1e30f) };
+	node.aabb_min = Vec3(1e30f);
+	node.aabb_max = Vec3(-1e30f);
 
 	for (uint32_t i = node.left_first; i < node.left_first + node.prim_count; ++i)
 	{
@@ -136,8 +137,8 @@ void BVH::CalculateNodeBounds(BVHNode& node, const std::vector<uint32_t>& tri_in
 		const Triangle& tri = m_triangles[tri_idx];
 
 		AABB tri_bounds = GetTriangleBounds(tri);
-		node.bounds.pmin = Vec3Min(node.bounds.pmin, tri_bounds.pmin);
-		node.bounds.pmax = Vec3Max(node.bounds.pmax, tri_bounds.pmax);
+		node.aabb_min = Vec3Min(node.aabb_min, tri_bounds.pmin);
+		node.aabb_max = Vec3Max(node.aabb_max, tri_bounds.pmax);
 	}
 }
 
@@ -151,7 +152,7 @@ void BVH::Subdivide(uint32_t node_index, uint32_t depth)
 		if (node.prim_count <= 2)
 			return;
 
-		Vec3 extent = node.bounds.pmax - node.bounds.pmin;
+		Vec3 extent = node.aabb_max - node.aabb_min;
 		uint32_t axis = 0;
 
 		if (extent.y > extent.x)
@@ -159,13 +160,13 @@ void BVH::Subdivide(uint32_t node_index, uint32_t depth)
 		if (extent.z > extent.xyz[axis])
 			axis = 2;
 
-		float split_pos = node.bounds.pmin.xyz[axis] + extent.xyz[axis] * 0.5f;
+		float split_pos = node.aabb_min.xyz[axis] + extent.xyz[axis] * 0.5f;
 		Split(node, axis, split_pos, depth);
 	}
 	else if (m_build_option == BuildOption_SAHSplitIntervals)
 	{
 		BVHNode& node = m_nodes[node_index];
-		float parent_cost = GetAABBVolume(node.bounds) * node.prim_count;
+		float parent_cost = GetAABBVolume(node.aabb_min, node.aabb_max) * node.prim_count;
 
 		float cheapest_cost = 1e30f;
 		uint32_t cheapest_split_axis = 0;
@@ -175,8 +176,8 @@ void BVH::Subdivide(uint32_t node_index, uint32_t depth)
 		{
 			for (uint32_t curr_axis = 0; curr_axis < 3; ++curr_axis)
 			{
-				float axis_width = node.bounds.pmax.xyz[curr_axis] - node.bounds.pmin.xyz[curr_axis];
-				float split_pos = axis_width * ((float)split_idx / 8) + node.bounds.pmin.xyz[curr_axis];
+				float axis_width = node.aabb_max.xyz[curr_axis] - node.aabb_min.xyz[curr_axis];
+				float split_pos = axis_width * ((float)split_idx / 8) + node.aabb_min.xyz[curr_axis];
 				float split_cost = EvaluateSAH(node, curr_axis, split_pos);
 
 				// We update the cheapest split if the split is cheaper than the parent cost
@@ -200,7 +201,7 @@ void BVH::Subdivide(uint32_t node_index, uint32_t depth)
 	else if (m_build_option == BuildOption_SAHSplitPrimitives)
 	{
 		BVHNode& node = m_nodes[node_index];
-		float parent_cost = GetAABBVolume(node.bounds) * node.prim_count;
+		float parent_cost = GetAABBVolume(node.aabb_min, node.aabb_max) * node.prim_count;
 
 		float cheapest_cost = 1e30f;
 		uint32_t cheapest_split_axis = 0;
@@ -213,7 +214,7 @@ void BVH::Subdivide(uint32_t node_index, uint32_t depth)
 
 			for (uint32_t curr_axis = 0; curr_axis < 3; ++curr_axis)
 			{
-				float axis_width = node.bounds.pmax.xyz[curr_axis] - node.bounds.pmin.xyz[curr_axis];
+				float axis_width = node.aabb_max.xyz[curr_axis] - node.aabb_min.xyz[curr_axis];
 				float split_pos = centroid.xyz[curr_axis];
 				float split_cost = EvaluateSAH(node, curr_axis, split_pos);
 
@@ -249,20 +250,20 @@ float BVH::EvaluateSAH(BVHNode& node, uint32_t axis, float split_pos)
 		if (centroid.xyz[axis] < split_pos)
 		{
 			left_count++;
-			GrowAABB(left_bounds, tri.v0.pos);
-			GrowAABB(left_bounds, tri.v1.pos);
-			GrowAABB(left_bounds, tri.v2.pos);
+			GrowAABB(left_bounds.pmin, left_bounds.pmax, tri.v0.pos);
+			GrowAABB(left_bounds.pmin, left_bounds.pmax, tri.v1.pos);
+			GrowAABB(left_bounds.pmin, left_bounds.pmax, tri.v2.pos);
 		}
 		else
 		{
 			right_count++;
-			GrowAABB(right_bounds, tri.v0.pos);
-			GrowAABB(right_bounds, tri.v1.pos);
-			GrowAABB(right_bounds, tri.v2.pos);
+			GrowAABB(right_bounds.pmin, right_bounds.pmax, tri.v0.pos);
+			GrowAABB(right_bounds.pmin, right_bounds.pmax, tri.v1.pos);
+			GrowAABB(right_bounds.pmin, right_bounds.pmax, tri.v2.pos);
 		}
 	}
 
-	float split_cost = left_count * GetAABBVolume(left_bounds) + right_count * GetAABBVolume(right_bounds);
+	float split_cost = left_count * GetAABBVolume(left_bounds.pmin, left_bounds.pmax) + right_count * GetAABBVolume(right_bounds.pmin, right_bounds.pmax);
 	return split_cost;
 }
 

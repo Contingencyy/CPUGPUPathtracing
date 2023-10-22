@@ -29,10 +29,9 @@ public:
 private:
 	struct BVHNode
 	{
-		AABB bounds;
 		// Right child is always left_child + 1
-		uint32_t left_first = 0;
-		uint32_t prim_count = 0;
+		union { struct { Vec3 aabb_min; uint32_t left_first; }; __m128 aabb_min4 = {}; };
+		union { struct { Vec3 aabb_max; uint32_t prim_count; }; __m128 aabb_max4 = {}; };
 	};
 
 private:

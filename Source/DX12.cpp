@@ -1,4 +1,5 @@
 #include "DX12.h"
+#include "Common.h"
 
 #include <d3d12.h>
 #include <dxgi1_6.h>
@@ -39,9 +40,6 @@
 #undef far
 #endif
 
-#include <stdexcept>
-#define DX_EXCEPT(msg) throw std::runtime_error(msg)
-
 #include "imgui/imgui.h"
 #include "imgui/imgui_impl_win32.h"
 #include "imgui/imgui_impl_dx12.h"
@@ -51,8 +49,8 @@ inline void GetHRESULTMessage(HRESULT hr)
 	char* msg = nullptr;
 	FormatMessageA(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
 		NULL, hr, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), (char*)&msg, 0, NULL);
-	printf(msg);
-	DX_EXCEPT(msg);
+	
+	EXCEPT("DX12", msg);
 }
 
 #define DX_CHECK(hr) if (FAILED(hr)) { GetHRESULTMessage(hr); }
@@ -200,7 +198,7 @@ namespace DX12
 		HANDLE fence_event = ::CreateEvent(NULL, FALSE, FALSE, NULL);
 		if (!fence_event)
 		{
-			DX_EXCEPT("Failed to create fence event handle");
+			EXCEPT("DX12", "Failed to create fence event handle");
 		}
 
 		// Create upload buffer

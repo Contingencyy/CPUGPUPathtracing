@@ -1,12 +1,28 @@
 #include "Primitives.h"
 
-float IntersectAABB(const AABB& aabb, Ray& ray)
+float IntersectAABB_SSE(const __m128 aabb_min, const __m128 aabb_max, Ray& ray)
 {
-	float tx1 = (aabb.pmin.x - ray.origin.x) * ray.inv_direction.x, tx2 = (aabb.pmax.x - ray.origin.x) * ray.inv_direction.x;
+	static __m128 mask4 = _mm_cmpeq_ps(_mm_setzero_ps(), _mm_set_ps(1, 0, 0, 0));
+	__m128 t1 = _mm_mul_ps(_mm_sub_ps(_mm_and_ps(aabb_min, mask4), ray.origin4), ray.inv_direction4);
+	__m128 t2 = _mm_mul_ps(_mm_sub_ps(_mm_and_ps(aabb_max, mask4), ray.origin4), ray.inv_direction4);
+	__m128 vmax4 = _mm_max_ps(t1, t2), vmin4 = _mm_min_ps(t1, t2);
+	float tmax = std::min(vmax4.m128_f32[0], std::min(vmax4.m128_f32[1], vmax4.m128_f32[2]));
+	float tmin = std::max(vmin4.m128_f32[0], std::max(vmin4.m128_f32[1], vmin4.m128_f32[2]));
+	
+	if (tmax >= tmin && tmin < ray.t && tmax > 0.0f)
+	{
+		return tmin;
+	}
+	return 1e30f;
+}
+
+float IntersectAABB(const Vec3& aabb_min, const Vec3& aabb_max, Ray& ray)
+{
+	float tx1 = (aabb_min.x - ray.origin.x) * ray.inv_direction.x, tx2 = (aabb_max.x - ray.origin.x) * ray.inv_direction.x;
 	float tmin = std::min(tx1, tx2), tmax = std::max(tx1, tx2);
-	float ty1 = (aabb.pmin.y - ray.origin.y) * ray.inv_direction.y, ty2 = (aabb.pmax.y - ray.origin.y) * ray.inv_direction.y;
+	float ty1 = (aabb_min.y - ray.origin.y) * ray.inv_direction.y, ty2 = (aabb_max.y - ray.origin.y) * ray.inv_direction.y;
 	tmin = std::max(tmin, std::min(ty1, ty2)), tmax = std::min(tmax, std::max(ty1, ty2));
-	float tz1 = (aabb.pmin.z - ray.origin.z) * ray.inv_direction.z, tz2 = (aabb.pmax.z - ray.origin.z) * ray.inv_direction.z;
+	float tz1 = (aabb_min.z - ray.origin.z) * ray.inv_direction.z, tz2 = (aabb_max.z - ray.origin.z) * ray.inv_direction.z;
 	tmin = std::max(tmin, std::min(tz1, tz2)), tmax = std::min(tmax, std::max(tz1, tz2));
 
 	if (tmax >= tmin && tmin < ray.t && tmax > 0.0f)
@@ -16,16 +32,16 @@ float IntersectAABB(const AABB& aabb, Ray& ray)
 	return 1e30f;
 }
 
-float GetAABBVolume(const AABB& aabb)
+float GetAABBVolume(const Vec3& aabb_min, const Vec3& aabb_max)
 {
-	Vec3 extent = aabb.pmax - aabb.pmin;
+	Vec3 extent = aabb_max - aabb_min;
 	return extent.x * extent.y + extent.y * extent.z + extent.z * extent.x;
 }
 
-void GrowAABB(AABB& aabb, const Vec3& p)
+void GrowAABB(Vec3& aabb_min, Vec3& aabb_max, const Vec3& p)
 {
-	aabb.pmin = Vec3Min(aabb.pmin, p);
-	aabb.pmax = Vec3Max(aabb.pmax, p);
+	aabb_min = Vec3Min(aabb_min, p);
+	aabb_max = Vec3Max(aabb_max, p);
 }
 
 bool IntersectPlane(const Plane& plane, Ray& ray)

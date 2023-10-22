@@ -1,6 +1,12 @@
 #pragma once
 #include "MathLib.h"
 
+#define USE_SSE_INSTRUCTION_SET_INTERSECTIONS 1
+
+#if USE_SSE_INSTRUCTION_SET_INTERSECTIONS
+#include <immintrin.h>
+#endif
+
 #define INTERSECTION_SPHERE_GEOMETRIC 1
 #define INTERSECTION_SPHERE_QUADRATIC 0
 
@@ -70,9 +76,9 @@ struct Ray
 		inv_direction = 1.0f / dir;
 	}
 
-	Vec3 origin = Vec3(0.0f);
-	Vec3 direction = Vec3(0.0f);
-	Vec3 inv_direction = Vec3(0.0f);
+	union { struct { Vec3 origin; float dummy; }; __m128 origin4 = {}; };
+	union { struct { Vec3 direction; float dummy; }; __m128 direction4 = {}; };
+	union { struct { Vec3 inv_direction; float dummy; }; __m128 inv_direction4 = {}; };
 	float t = 1e34f;
 
 	struct Payload
@@ -83,9 +89,10 @@ struct Ray
 	} payload;
 };
 
-float IntersectAABB(const AABB& aabb, Ray& ray);
-float GetAABBVolume(const AABB& aabb);
-void GrowAABB(AABB& aabb, const Vec3& p);
+float IntersectAABB_SSE(const __m128 aabb_min, const __m128 aabb_max, Ray& ray);
+float IntersectAABB(const Vec3& aabb_min, const Vec3& aabb_max, Ray& ray);
+float GetAABBVolume(const Vec3& aabb_min, const Vec3& aabb_max);
+void GrowAABB(Vec3& aabb_min, Vec3& aabb_max, const Vec3& p);
 
 bool IntersectPlane(const Plane& plane, Ray& ray);
 
