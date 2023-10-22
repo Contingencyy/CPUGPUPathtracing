@@ -70,8 +70,6 @@ bool IntersectPlane(const Plane& plane, Ray& ray)
 bool IntersectSphere(const Sphere& sphere, Ray& ray)
 {
 	float t0, t1;
-#if INTERSECTION_SPHERE_GEOMETRIC
-	// Seems to be faster than solving the quadratic
 	Vec3 L = sphere.center - ray.origin;
 	float tca = Vec3Dot(L, ray.direction);
 
@@ -90,17 +88,7 @@ bool IntersectSphere(const Sphere& sphere, Ray& ray)
 	float thc = std::sqrtf(sphere.radius_sq - d2);
 	t0 = tca - thc;
 	t1 = tca + thc;
-#elif INTERSECTION_SPHERE_QUADRATIC
-	Vec3 L = ray.origin - sphere.center;
-	float a = Vec3Dot(ray.direction, ray.direction);
-	float b = 2 * Vec3Dot(ray.direction, L);
-	float c = Vec3Dot(L, L) - sphere.radius_sq;
 
-	if (!SolveQuadratic(a, b, c, t0, t1))
-	{
-		return false;
-	}
-#endif
 	if (t0 > t1)
 	{
 		std::swap(t0, t1);
@@ -142,56 +130,6 @@ AABB GetSphereBounds(const Sphere& sphere)
 bool IntersectTriangle(const Triangle& triangle, Ray& ray)
 {
 	float t = 0.0f;
-#if INTERSECTION_TRIANGLE_INSIDE_OUTSIDE_TEST
-	Vec3 v0v1 = triangle.v1 - triangle.v0;
-	Vec3 v0v2 = triangle.v2 - triangle.v0;
-	Vec3 N = Vec3Cross(v0v1, v0v2);
-	float area = Vec3Length(N);
-
-	float NoD = Vec3Dot(N, ray.direction);
-
-	if (std::fabs(NoD) < 0.001f)
-	{
-		return false;
-	}
-
-	float d = Vec3Dot(-N, triangle.v0);
-	t = -(Vec3Dot(N, ray.origin) + d);
-
-	if (t < 0.0f)
-	{
-		return false;
-	}
-
-	Vec3 P = ray.origin + t * ray.direction;
-
-	Vec3 edge0 = triangle.v1 - triangle.v0;
-	Vec3 vp0 = P - triangle.v0;
-	Vec3 C = Vec3Cross(edge0, vp0);
-
-	if (Vec3Dot(N, C) < 0.0f)
-	{
-		return false;
-	}
-
-	Vec3 edge1 = triangle.v2 - triangle.v1;
-	Vec3 vp1 = P - triangle.v1;
-	C = Vec3Cross(edge1, vp1);
-
-	if (Vec3Dot(N, C) < 0.0f)
-	{
-		return false;
-	}
-
-	Vec3 edge2 = triangle.v0 - triangle.v2;
-	Vec3 vp2 = P - triangle.v2;
-	C = Vec3Cross(edge2, vp2);
-
-	if (Vec3Dot(N, C) < 0.0f)
-	{
-		return false;
-	}
-#elif INTERSECTION_TRIANGLE_MOELLER_TRUMBORE
 	Vec3 edge1 = triangle.v1.pos - triangle.v0.pos;
 	Vec3 edge2 = triangle.v2.pos - triangle.v0.pos;
 
@@ -226,7 +164,6 @@ bool IntersectTriangle(const Triangle& triangle, Ray& ray)
 	{
 		return false;
 	}
-#endif
 
 	if (t < ray.t)
 	{

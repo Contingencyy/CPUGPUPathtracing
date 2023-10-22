@@ -7,12 +7,6 @@
 #include <immintrin.h>
 #endif
 
-#define INTERSECTION_SPHERE_GEOMETRIC 1
-#define INTERSECTION_SPHERE_QUADRATIC 0
-
-#define INTERSECTION_TRIANGLE_INSIDE_OUTSIDE_TEST 0
-#define INTERSECTION_TRIANGLE_MOELLER_TRUMBORE 1
-
 struct Vertex
 {
 	Vec3 pos;
@@ -32,13 +26,6 @@ struct Mesh
 {
 	std::vector<Vertex> vertices;
 	std::vector<uint32_t> indices;
-};
-
-struct Primitive
-{
-	PrimitiveType type = PrimitiveType_NumTypes;
-	void* prim_ptr = nullptr;
-	uint32_t mat_index = 0;
 };
 
 struct Plane
