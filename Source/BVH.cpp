@@ -1,9 +1,16 @@
 #include "Common.h"
 #include "BVH.h"
 
+#include "imgui/imgui.h"
+
+const std::vector<const char*> bvh_build_option_names =
+{
+	"Naive split", "SAH split intervals", "SAH split primitives"
+};
+
 void BVH::Build(const std::vector<Vertex>& vertices, const std::vector<uint32_t>& indices, BuildOption build_option)
 {
-	m_build_option = build_option;
+	m_current_build_option = build_option;
 
 	m_triangles.resize(indices.size() / 3);
 	for (uint32_t i = 0, curr_index = 0; i < m_triangles.size(); ++i, curr_index += 3)
@@ -35,9 +42,11 @@ void BVH::Build(const std::vector<Vertex>& vertices, const std::vector<uint32_t>
 	Subdivide(0, 0);
 }
 
-void BVH::Rebuild()
+void BVH::Rebuild(BuildOption build_option)
 {
+	m_current_build_option = build_option;
 	m_current_node = 0;
+	m_max_depth = 0;
 
 	BVHNode& root_node = m_nodes[m_current_node++];
 	root_node.left_first = 0;
@@ -125,6 +134,44 @@ uint32_t BVH::GetMaxDepth() const
 	return m_max_depth;
 }
 
+void BVH::RenderImGui()
+{
+	ImGui::Text("Triangle count: %u", m_triangles.size());
+	ImGui::Text("BVH Depth: %u", m_max_depth);
+
+	bool is_built = m_selected_build_option == m_current_build_option;
+	if (!is_built)
+		ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.6f, 0.0f, 0.0f, 1.0f));
+
+	if (ImGui::BeginCombo("Build options", bvh_build_option_names[m_selected_build_option]))
+	{
+		for (size_t i = 0; i < BVH::BuildOption_NumOptions; ++i)
+		{
+			bool is_selected = i == m_selected_build_option;
+
+			if (ImGui::Selectable(bvh_build_option_names[i], is_selected))
+			{
+				m_selected_build_option = (BVH::BuildOption)i;
+			}
+
+			if (is_selected)
+			{
+				ImGui::SetItemDefaultFocus();
+			}
+		}
+
+		ImGui::EndCombo();
+	}
+
+	if (!is_built)
+		ImGui::PopStyleColor();
+
+	if (ImGui::Button("Rebuild BVH"))
+	{
+		Rebuild(m_selected_build_option);
+	}
+}
+
 void BVH::CalculateNodeBounds(BVHNode& node, const std::vector<uint32_t>& tri_indices)
 {
 	node.aabb_min = Vec3(1e30f);
@@ -145,7 +192,7 @@ void BVH::Subdivide(uint32_t node_index, uint32_t depth)
 {
 	m_max_depth = std::max(m_max_depth, depth);
 
-	if (m_build_option == BuildOption_NaiveSplit)
+	if (m_current_build_option == BuildOption_NaiveSplit)
 	{
 		BVHNode& node = m_nodes[node_index];
 		if (node.prim_count <= 2)
@@ -162,7 +209,7 @@ void BVH::Subdivide(uint32_t node_index, uint32_t depth)
 		float split_pos = node.aabb_min.xyz[axis] + extent.xyz[axis] * 0.5f;
 		Split(node, axis, split_pos, depth);
 	}
-	else if (m_build_option == BuildOption_SAHSplitIntervals)
+	else if (m_current_build_option == BuildOption_SAHSplitIntervals)
 	{
 		BVHNode& node = m_nodes[node_index];
 		float parent_cost = GetAABBVolume(node.aabb_min, node.aabb_max) * node.prim_count;
@@ -197,7 +244,7 @@ void BVH::Subdivide(uint32_t node_index, uint32_t depth)
 
 		Split(node, cheapest_split_axis, cheapest_split_pos, depth);
 	}
-	else if (m_build_option == BuildOption_SAHSplitPrimitives)
+	else if (m_current_build_option == BuildOption_SAHSplitPrimitives)
 	{
 		BVHNode& node = m_nodes[node_index];
 		float parent_cost = GetAABBVolume(node.aabb_min, node.aabb_max) * node.prim_count;

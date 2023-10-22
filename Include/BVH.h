@@ -17,12 +17,12 @@ public:
 	BVH() = default;
 
 	void Build(const std::vector<Vertex>& vertices, const std::vector<uint32_t>& indices, BuildOption build_option);
-	void Rebuild();
+	void Rebuild(BuildOption build_option);
 	bool Traverse(Ray& ray) const;
 
 	Triangle GetTriangle(uint32_t index) const;
 	uint32_t GetMaxDepth() const;
-	BuildOption& GetBuildOption() { return m_build_option; }
+	void RenderImGui();
 
 private:
 	struct BVHNode
@@ -39,7 +39,8 @@ private:
 	void Split(BVHNode& node, uint32_t axis, float split_pos, uint32_t depth);
 
 private:
-	BuildOption m_build_option = BuildOption_SAHSplitIntervals;
+	BuildOption m_selected_build_option = BuildOption_SAHSplitIntervals;
+	BuildOption m_current_build_option = BuildOption_SAHSplitIntervals;
 
 	std::vector<BVHNode> m_nodes;
 	uint32_t m_current_node = 0;

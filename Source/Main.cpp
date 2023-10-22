@@ -49,7 +49,6 @@
 #include "imgui/imgui_impl_win32.h"
 #include "imgui/imgui_impl_dx12.h"
 
-static constexpr uint8_t MAX_RAY_DEPTH = 4;
 static constexpr float RAY_REFLECT_NUDGE_MULTIPLIER = 0.001f;
 
 struct Material
@@ -170,11 +169,6 @@ const std::vector<const char*> debug_render_view_names =
 	"None", "Diffuse", "Specular", "Refract", "Surface normal", "Surface albedo", "Depth", "View direction", "BVH Depth"
 };
 
-const std::vector<const char*> bvh_build_option_names =
-{
-	"Naive split", "SAH split intervals", "SAH split primitives"
-};
-
 struct Object
 {
 	Object(const char* name, const Mesh& mesh, uint32_t mat_index, BVH::BuildOption build_option)
@@ -195,6 +189,7 @@ struct Data
 	std::vector<Vec4> accumulator;
 	uint32_t num_accumulated = 0;
 	bool pause_rendering = false;
+	int32_t max_ray_depth = 5;
 
 	std::vector<Object> objects;
 
@@ -258,7 +253,7 @@ void IntersectScene(Ray& ray)
 Vec4 TraceRay(Ray& ray, uint8_t depth)
 {
 	// Abort, max ray depth has been reached, return black
-	if (depth == MAX_RAY_DEPTH)
+	if (depth >= data.max_ray_depth)
 		return Vec4(0.0f);
 
 	data.stats.traced_rays++;
@@ -494,8 +489,8 @@ int main(int argc, char* argv[])
 	data.materials.emplace_back(Vec3(1.0f), 0.1f, 0.9f, Vec3(0.2f, 0.8f, 0.8f), 1.517f);
 
 	// Load mesh and build its BVH
-	//Mesh dragon_mesh = GLTFLoader::Load("Assets/Models/Dragon/DragonAttenuation.gltf");
-	Mesh dragon_mesh = GLTFLoader::Load("Assets/Models/Cube/Cube.gltf");
+	Mesh dragon_mesh = GLTFLoader::Load("Assets/Models/Dragon/DragonAttenuation.gltf");
+	//Mesh dragon_mesh = GLTFLoader::Load("Assets/Models/Cube/Cube.gltf");
 	data.objects.emplace_back("Dragon", dragon_mesh, 3, BVH::BuildOption_SAHSplitIntervals);
 
 	Mesh ground_mesh;
@@ -549,6 +544,7 @@ int main(int argc, char* argv[])
 		}
 		ImGui::Text("Frame time (CPU): %.3f ms", delta_time.count() * 1000.0f);
 		ImGui::Text("Traced ray count: %u", data.stats.traced_rays);
+		ImGui::SliderInt("Max ray depth: %u", &data.max_ray_depth, 1, 10);
 		if (ImGui::BeginCombo("Debug render view", debug_render_view_names[data.debug_view]))
 		{
 			for (size_t i = 0; i < DebugRenderView_NumViews; ++i)
@@ -578,31 +574,7 @@ int main(int argc, char* argv[])
 				if (ImGui::CollapsingHeader(obj.name))
 				{
 					ImGui::Indent(10.0f);
-
-					ImGui::Text("BVH Depth: %u", obj.bounding_volume_hierarchy.GetMaxDepth());
-					if (ImGui::BeginCombo("Build options", bvh_build_option_names[obj.bounding_volume_hierarchy.GetBuildOption()]))
-					{
-						for (size_t i = 0; i < BVH::BuildOption_NumOptions; ++i)
-						{
-							bool is_selected = i == obj.bounding_volume_hierarchy.GetBuildOption();
-							if (ImGui::Selectable(bvh_build_option_names[i], is_selected))
-							{
-								obj.bounding_volume_hierarchy.GetBuildOption() = (BVH::BuildOption)i;
-							}
-
-							if (is_selected)
-							{
-								ImGui::SetItemDefaultFocus();
-							}
-						}
-
-						ImGui::EndCombo();
-					}
-					if (ImGui::Button("Rebuild BVH"))
-					{
-						obj.bounding_volume_hierarchy.Rebuild();
-					}
-
+					obj.bounding_volume_hierarchy.RenderImGui();
 					ImGui::Unindent(10.0f);
 				}
 			}
