@@ -20,7 +20,7 @@
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <VCProjectVersion>17.0</VCProjectVersion>
-    <ProjectGuid>{B3D21AF1-1D1C-4E30-B868-058C07CCC76C}</ProjectGuid>
+    <ProjectGuid>{8781B9E0-BC7A-4B1E-AF75-CE0D6CE48341}</ProjectGuid>
     <Keyword>Win32Proj</Keyword>
     <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
     <ProjectName>CPUGPUPathtracing</ProjectName>

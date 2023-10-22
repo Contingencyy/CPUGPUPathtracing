@@ -136,7 +136,8 @@ bool IntersectTriangle(const Triangle& triangle, Ray& ray)
 	Vec3 H = Vec3Cross(ray.direction, edge2);
 	float a = Vec3Dot(edge1, H);
 
-	if (a > -0.001f && a < 0.001f)
+	// We want to have triangles be double-sided (no back-face culling), since we do dielectrics
+	if (std::fabs(a) < 0.001f)
 	{
 		return false;
 	}
@@ -160,12 +161,7 @@ bool IntersectTriangle(const Triangle& triangle, Ray& ray)
 
 	t = f * Vec3Dot(edge2, Q);
 
-	if (t < 0.001f)
-	{
-		return false;
-	}
-
-	if (t < ray.t)
+	if (t > 0.0f && t < ray.t)
 	{
 		ray.t = t;
 		return true;

@@ -494,8 +494,8 @@ int main(int argc, char* argv[])
 	data.materials.emplace_back(Vec3(1.0f), 0.1f, 0.9f, Vec3(0.2f, 0.8f, 0.8f), 1.517f);
 
 	// Load mesh and build its BVH
-	Mesh dragon_mesh = GLTFLoader::Load("Assets/Models/Dragon/DragonAttenuation.gltf");
-	//Mesh dragon_mesh = GLTFLoader::Load("Assets/Models/Cube/Cube.gltf");
+	//Mesh dragon_mesh = GLTFLoader::Load("Assets/Models/Dragon/DragonAttenuation.gltf");
+	Mesh dragon_mesh = GLTFLoader::Load("Assets/Models/Cube/Cube.gltf");
 	data.objects.emplace_back("Dragon", dragon_mesh, 3, BVH::BuildOption_SAHSplitIntervals);
 
 	Mesh ground_mesh;
