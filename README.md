@@ -11,7 +11,8 @@ Planned:
 - Microfacet BRDF (Physically-based rendering)
 - GPU raytracing in compute (all software, no hardware)
 
-Current: Path tracer (Work in progress)
+Current: Path tracer
+
 Features:
 - Soft shadows
 - Bounding volume hierarchies (Triangle primitives only)
@@ -37,6 +38,7 @@ https://github.com/Contingencyy/GraphicsAdvancedMasterclass/assets/34250026/4876
 
 
 Previous: Whitted-style raytracer (Finished)
+
 Features:
 - Direct illumination from multiple light sources
   - Shadow rays
