@@ -2,8 +2,6 @@
 #include "MathLib.h"
 #include "Primitives.h"
 
-#include <vector>
-
 class BVH
 {
 public:

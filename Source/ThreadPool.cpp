@@ -1,7 +1,6 @@
+#include "Common.h"
 #include "ThreadPool.h"
 
-#include <vector>
-#include <array>
 #include <thread>
 #include <condition_variable>
 

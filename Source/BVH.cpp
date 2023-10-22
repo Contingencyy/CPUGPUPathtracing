@@ -1,6 +1,5 @@
+#include "Common.h"
 #include "BVH.h"
-
-#include <algorithm>
 
 void BVH::Build(const std::vector<Vertex>& vertices, const std::vector<uint32_t>& indices, BuildOption build_option)
 {

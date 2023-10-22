@@ -1,3 +1,4 @@
+#include "Common.h"
 #include "Primitives.h"
 
 float IntersectAABB_SSE(const __m128 aabb_min, const __m128 aabb_max, Ray& ray)

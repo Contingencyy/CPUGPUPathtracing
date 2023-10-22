@@ -1,6 +1,6 @@
+#include "Common.h"
 #include "GLTFLoader.h"
 #include "Primitives.h"
-#include "Common.h"
 
 #define CGLTF_IMPLEMENTATION
 #include "cgltf/cgltf.h"

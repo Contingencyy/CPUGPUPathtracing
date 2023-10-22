@@ -1,7 +1,6 @@
 #pragma once
 
 #include <cmath>
-#include <utility>
 
 static constexpr float PI = 3.14159265f;
 static constexpr float INV_PI = 1.0f / PI;

@@ -1,3 +1,4 @@
+#include "Common.h"
 #include "Logger.h"
 
 namespace Logger

@@ -4,9 +4,6 @@
 struct Vertex;
 struct Mesh;
 
-#include <vector>
-#include <string>
-
 namespace GLTFLoader
 {
 

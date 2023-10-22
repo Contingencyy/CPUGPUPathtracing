@@ -1,7 +1,5 @@
 #pragma once
 
-#include <stdint.h>
-
 class HWND__;
 typedef HWND__* HWND;
 

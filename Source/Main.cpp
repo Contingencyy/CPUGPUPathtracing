@@ -1,3 +1,4 @@
+#include "Common.h"
 #include "DX12.h"
 #include "MathLib.h"
 #include "Window.h"
@@ -43,14 +44,6 @@
 #ifdef far
 #undef far
 #endif
-
-#include <stdint.h>
-#include <stdexcept>
-#include <chrono>
-#include <array>
-#include <vector>
-#include <unordered_map>
-#include <algorithm>
 
 #include "imgui/imgui.h"
 #include "imgui/imgui_impl_win32.h"

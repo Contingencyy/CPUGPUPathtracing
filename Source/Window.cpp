@@ -1,3 +1,4 @@
+#include "Common.h"
 #include "Window.h"
 #include "Input.h"
 
@@ -37,9 +38,6 @@
 #ifdef far
 #undef far
 #endif
-
-#include <stdint.h>
-#include <stdexcept>
 
 #define LOWORD(l) ((WORD)(((DWORD_PTR)(l)) & 0xffff))
 #define HIWORD(l) ((WORD)((((DWORD_PTR)(l)) >> 16) & 0xffff))

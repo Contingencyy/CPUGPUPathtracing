@@ -1,5 +1,5 @@
-#include "DX12.h"
 #include "Common.h"
+#include "DX12.h"
 
 #include <d3d12.h>
 #include <dxgi1_6.h>

@@ -1,3 +1,4 @@
+#include "Common.h"
 #include "Input.h"
 #include "Window.h"
 
@@ -35,8 +36,6 @@
 #ifdef far
 #undef far
 #endif
-
-#include <unordered_map>
 
 namespace Input
 {

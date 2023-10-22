@@ -13,8 +13,6 @@
 #define INTERSECTION_TRIANGLE_INSIDE_OUTSIDE_TEST 0
 #define INTERSECTION_TRIANGLE_MOELLER_TRUMBORE 1
 
-#include <vector>
-
 struct Vertex
 {
 	Vec3 pos;
