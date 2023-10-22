@@ -189,7 +189,7 @@ struct Data
 	std::vector<Vec4> accumulator;
 	uint32_t num_accumulated = 0;
 	bool pause_rendering = false;
-	int32_t max_ray_depth = 5;
+	int32_t max_ray_depth = 4;
 
 	std::vector<Object> objects;
 
@@ -253,7 +253,7 @@ void IntersectScene(Ray& ray)
 Vec4 TraceRay(Ray& ray, uint8_t depth)
 {
 	// Abort, max ray depth has been reached, return black
-	if (depth >= data.max_ray_depth)
+	if (depth > data.max_ray_depth)
 		return Vec4(0.0f);
 
 	data.stats.traced_rays++;
@@ -544,7 +544,7 @@ int main(int argc, char* argv[])
 		}
 		ImGui::Text("Frame time (CPU): %.3f ms", delta_time.count() * 1000.0f);
 		ImGui::Text("Traced ray count: %u", data.stats.traced_rays);
-		ImGui::SliderInt("Max ray depth: %u", &data.max_ray_depth, 1, 10);
+		ImGui::SliderInt("Max ray depth", &data.max_ray_depth, 1, 8);
 		if (ImGui::BeginCombo("Debug render view", debug_render_view_names[data.debug_view]))
 		{
 			for (size_t i = 0; i < DebugRenderView_NumViews; ++i)
