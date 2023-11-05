@@ -421,7 +421,7 @@ void Render()
 	}
 
 	UVec2 framebuffer_size = Window::GetFramebufferSize();
-	UVec2 job_size(16, 16);
+	UVec2 job_size(8, 8);
 	Vec2 inv_framebuffer_size(1.0f / framebuffer_size.x, 1.0f / framebuffer_size.y);
 
 	data.num_accumulated++;
@@ -440,6 +440,7 @@ void Render()
 
 						Ray ray = data.camera.GetRay(screen_u, screen_v);
 						Vec4 final_color = TraceRay(ray, 0);
+						final_color.xyz = Util::LinearToSRGB(final_color.xyz);
 
 						uint32_t framebuffer_pos = (y + v) * framebuffer_size.x + (x + u);
 						if (data.debug_view == DebugRenderView_None)

@@ -96,6 +96,9 @@ inline Vec3 Vec3Max(const Vec3& v0, const Vec3& v1) { return Vec3(std::max(v0.x,
 inline Vec3 Vec3Abs(const Vec3& v0) { return Vec3(std::fabs(v0.x), std::fabs(v0.y), std::fabs(v0.z)); }
 
 inline Vec3 Vec3Lerp(const Vec3& v0, const Vec3& v1, float s) { return Vec3(v0.x + (v1.x - v0.x) * s, v0.y + (v1.y - v0.y) * s, v0.z + (v1.z - v0.z) * s); }
+inline Vec3 Vec3Lerp(const Vec3& v0, const Vec3& v1, const Vec3& lerp) { return Vec3(std::lerp(v0.x, v1.x, lerp.x), std::lerp(v0.y, v1.y, lerp.y), std::lerp(v0.z, v1.z, lerp.z)); }
+inline Vec3 Vec3Clamp(const Vec3& v0, float min, float max) { return Vec3(std::clamp(v0.x, min, max), std::clamp(v0.y, min, max), std::clamp(v0.z, min, max)); }
+inline Vec3 Vec3Pow(const Vec3& v0, float pow) { return Vec3(std::pow(v0.x, pow), std::pow(v0.y, pow), std::pow(v0.z, pow)); }
 
 struct Vec4
 {

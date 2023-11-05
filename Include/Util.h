@@ -33,4 +33,29 @@ namespace Util
 		return Vec3Normalize(dir * eta + ((eta * cosi - std::sqrtf(k)) * normal));
 	}
 
+	Vec3 LessThan(const Vec3& v0, float value)
+	{
+		return Vec3(v0.x < value ? 1.0f : 0.0f, v0.y < value ? 1.0f : 0.0f, v0.z < value ? 1.0f : 0.0f);
+	}
+
+	Vec3 LinearToSRGB(const Vec3& rgb)
+	{
+		Vec3 clamped = Vec3Clamp(rgb, 0.0f, 1.0f);
+		return Vec3Lerp(
+			Vec3Pow(clamped, (1.0f / 2.4f) * 1.055f - 0.055f),
+			clamped * 12.92f,
+			LessThan(clamped, 0.0031308f)
+		);
+	}
+
+	Vec3 SRGBToLinear(const Vec3& rgb)
+	{
+		Vec3 clamped = Vec3Clamp(rgb, 0.0f, 1.0f);
+		return Vec3Lerp(
+			Vec3Pow((clamped + 0.055f) / 1.055f, 2.4f),
+			clamped / 12.92f,
+			LessThan(clamped, 0.04045f)
+		);
+	}
+
 }
