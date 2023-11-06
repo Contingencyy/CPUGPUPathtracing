@@ -5,7 +5,7 @@ This is a project that I develop alongside the graphics advanced masterclass at 
 Planned:
 - Variance reduction
   - Next event estimation
-  - (Multiple) importance sampling
+  - (Multiple/Resampled) importance sampling
   - Russian roulette
   - ReSTIR
 - Acceleration structure
