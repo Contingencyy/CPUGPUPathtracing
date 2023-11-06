@@ -3,17 +3,21 @@
 This is a project that I develop alongside the graphics advanced masterclass at BUAS, presented by Jacco Bikker. It will involve raytracing and pathtracing on the CPU, and eventually moving that to the GPU, as well as building your own acceleration structures.
 
 Planned:
-- Top-level and bottom-level acceleration structures with transforms
-- BVH refitting
-- Binned BVH building
-- Additional improvements and optimizations to BVH building
+- Variance reduction
+  - Next event estimation
+  - (Multiple) importance sampling
+  - Russian roulette
+  - ReSTIR
+- Acceleration structure
+  - Top-level AS with transforms
+  - Bottom-level acceleration structures
+  - BVH refitting
+  - Binned BVH build
 - Additional optimizations for CPU raytracing and SIMD
 - Microfacet BRDF (Physically-based rendering)
 - GPU raytracing in compute (all software, no hardware)
 
 Current: Path tracer
-
-Features:
 - Soft shadows
 - Bounding volume hierarchies (Triangle primitives only)
   - Mid point split
@@ -38,8 +42,6 @@ https://github.com/Contingencyy/GraphicsAdvancedMasterclass/assets/34250026/4876
 
 
 Previous: Whitted-style raytracer (Finished)
-
-Features:
 - Direct illumination from multiple light sources
   - Shadow rays
   - Distance attenuation
