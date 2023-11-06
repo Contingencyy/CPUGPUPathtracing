@@ -13,6 +13,7 @@ Planned:
   - Bottom-level acceleration structures
   - BVH refitting
   - Binned BVH build
+- Denoising
 - Additional optimizations for CPU raytracing and SIMD
 - Microfacet BRDF (Physically-based rendering)
 - GPU raytracing in compute (all software, no hardware)
