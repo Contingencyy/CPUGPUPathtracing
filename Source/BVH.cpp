@@ -18,6 +18,8 @@ void BVH::Build(const std::vector<Vertex>& vertices, const std::vector<uint32_t>
 		m_triangles[i].v0 = vertices[indices[curr_index]];
 		m_triangles[i].v1 = vertices[indices[curr_index + 1]];
 		m_triangles[i].v2 = vertices[indices[curr_index + 2]];
+
+		m_total_area += GetTriangleArea(m_triangles[i]);
 	}
 
 	m_tri_indices.resize(m_triangles.size());
@@ -29,7 +31,7 @@ void BVH::Build(const std::vector<Vertex>& vertices, const std::vector<uint32_t>
 	m_centroids.resize(m_triangles.size());
 	for (uint32_t i = 0; i < m_triangles.size(); ++i)
 	{
-		m_centroids[i] = GetTriangleCentroid(m_triangles[i]);
+		m_centroids[i] = TriangleCentroid(m_triangles[i]);
 	}
 
 	m_nodes.resize(m_triangles.size() * 2 - 1);
@@ -129,15 +131,26 @@ Triangle BVH::GetTriangle(uint32_t index) const
 	return m_triangles[index];
 }
 
+uint32_t BVH::NumTriangles() const
+{
+	return (uint32_t)m_triangles.size();
+}
+
 uint32_t BVH::GetMaxDepth() const
 {
 	return m_max_depth;
+}
+
+float BVH::GetTotalArea() const
+{
+	return m_total_area;
 }
 
 void BVH::RenderImGui()
 {
 	ImGui::Text("Triangle count: %u", m_triangles.size());
 	ImGui::Text("BVH Depth: %u", m_max_depth);
+	ImGui::Text("BVH Area: %.3f", m_total_area);
 
 	bool is_built = m_selected_build_option == m_current_build_option;
 	if (!is_built)
@@ -182,7 +195,7 @@ void BVH::CalculateNodeBounds(BVHNode& node, const std::vector<uint32_t>& tri_in
 		uint32_t tri_idx = tri_indices[i];
 		const Triangle& tri = m_triangles[tri_idx];
 
-		AABB tri_bounds = GetTriangleBounds(tri);
+		AABB tri_bounds = TriangleBounds(tri);
 		node.aabb_min = Vec3Min(node.aabb_min, tri_bounds.pmin);
 		node.aabb_max = Vec3Max(node.aabb_max, tri_bounds.pmax);
 	}

@@ -6,12 +6,27 @@ namespace Util
 
 	Vec3 UniformHemisphereSample(const Vec3& normal)
 	{
-		Vec3 dir = Vec3(RandomFloat() * 2 - 1, RandomFloat() * 2 - 1, RandomFloat() * 2 - 1);
+		Vec3 dir = Vec3(0.0f);
+		do
+		{
+			dir = Vec3(RandomFloat() * 2.0f - 1.0f, RandomFloat() * 2.0f - 1.0f, RandomFloat() * 2.0f - 1.0f);
+		} while (Vec3Dot(dir, dir) > 1.0f);
 
 		if (Vec3Dot(dir, normal) < 0.0f)
 			dir *= -1.0f;
 
 		return Vec3Normalize(dir);
+	}
+
+	Vec3 CosineWeightedDiffuseReflection(const Vec3& normal)
+	{
+		Vec3 dir = Vec3(0.0f);
+		do
+		{
+			dir = Vec3(RandomFloat() * 2.0f - 1.0f, RandomFloat() * 2.0f - 1.0f, RandomFloat() * 2.0f - 1.0f);
+		} while (Vec3Dot(dir, dir) > 1.0f);
+
+		return Vec3Normalize(normal + Vec3Normalize(dir));
 	}
 
 	Vec3 Reflect(const Vec3& dir, const Vec3& normal)

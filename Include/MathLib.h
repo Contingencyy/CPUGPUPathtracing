@@ -3,6 +3,7 @@
 #include <cmath>
 
 static constexpr float PI = 3.14159265f;
+static constexpr float TWO_PI = 2.0f * PI;
 static constexpr float INV_PI = 1.0f / PI;
 
 inline constexpr float Deg2Rad(float deg)

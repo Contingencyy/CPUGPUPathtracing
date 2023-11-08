@@ -20,6 +20,14 @@ inline uint32_t RandomUInt32()
 	return s_seed;
 }
 
+inline uint32_t RandomUInt32(uint32_t& custom_seed)
+{
+	custom_seed ^= custom_seed << 13;
+	custom_seed ^= custom_seed >> 17;
+	custom_seed ^= custom_seed << 5;
+	return custom_seed;
+}
+
 inline float RandomFloat()
 {
 	return RandomUInt32() * 2.3283064365387e-10f;
@@ -28,6 +36,13 @@ inline float RandomFloat()
 inline float RandomFloatRange(float min = 0.0f, float max = 1.0f)
 {
 	return min + (RandomFloat() * (max - min));
+}
+
+inline uint32_t RandomUInt32Range(uint32_t min, uint32_t max)
+{
+	if (max - min == 0)
+		return min;
+	return min + (RandomUInt32() % ((max + 1) - min));
 }
 
 inline Vec3 RandomVec3(float min = 0.0f, float max = 1.0f)

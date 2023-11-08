@@ -21,7 +21,9 @@ public:
 	bool Traverse(Ray& ray) const;
 
 	Triangle GetTriangle(uint32_t index) const;
+	uint32_t NumTriangles() const;
 	uint32_t GetMaxDepth() const;
+	float GetTotalArea() const;
 	void RenderImGui();
 
 private:
@@ -45,6 +47,7 @@ private:
 	std::vector<BVHNode> m_nodes;
 	uint32_t m_current_node = 0;
 	uint32_t m_max_depth = 0;
+	float m_total_area = 0.0f;
 
 	std::vector<Triangle> m_triangles;
 	std::vector<uint32_t> m_tri_indices;
