@@ -1,5 +1,4 @@
 #pragma once
-#include "MathLib.h"
 
 #define USE_SSE_INSTRUCTION_SET_INTERSECTIONS 1
 
@@ -36,7 +35,11 @@ struct Plane
 
 struct Sphere
 {
+	Sphere(const Vec3& center, float radius)
+		: center(center), radius(radius), radius_sq(radius * radius) {}
+
 	Vec3 center = Vec3(0.0f);
+	float radius = 0.0f;
 	float radius_sq = 0.0f;
 };
 
@@ -94,6 +97,7 @@ struct Primitive
 	bool Intersect(Ray& ray) const;
 	Vec3 Normal(const Vec3& pos) const;
 	Vec3 RandomPoint() const;
+	Vec3 RandomPointFacing(const Vec3& pos) const;
 	AABB Bounds() const;
 	Vec3 Centroid() const;
 
@@ -143,6 +147,16 @@ Vec3 RandomPointAABB(const AABB& aabb);
 
 /*
 
+	Generate random points on primitive facing a particular direction functions
+
+*/
+Vec3 RandomPointTriangleFacing(const Triangle& triangle, const Vec3& pos);
+Vec3 RandomPointSphereFacing(const Sphere& sphere, const Vec3& pos);
+Vec3 RandomPointPlaneFacing(const Plane& plane, const Vec3& pos);
+Vec3 RandomPointAABBFacing(const AABB& aabb, const Vec3& pos);
+
+/*
+
 	Get primitive bounds
 
 */
@@ -166,7 +180,6 @@ Vec3 AABBCentroid(const AABB& aabb);
 	Temporary functions
 
 */
-float GetSphereSolidAngle(const Sphere& sphere, float dist_sq);
 float GetTriangleArea(const Triangle& triangle);
 
 /*

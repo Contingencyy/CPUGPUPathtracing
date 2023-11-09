@@ -172,6 +172,7 @@
     <ClCompile Include="Source\MathLib.cpp" />
     <ClCompile Include="Source\Primitives.cpp" />
     <ClCompile Include="Source\ThreadPool.cpp" />
+    <ClCompile Include="Source\Util.cpp" />
     <ClCompile Include="Source\Window.cpp" />
   </ItemGroup>
   <ItemGroup>

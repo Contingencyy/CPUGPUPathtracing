@@ -1,5 +1,4 @@
 #pragma once
-#include "MathLib.h"
 
 typedef unsigned __int64 UINT_PTR;
 typedef UINT_PTR WPARAM;

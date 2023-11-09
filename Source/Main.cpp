@@ -1,13 +1,10 @@
 #include "Common.h"
 #include "DX12.h"
-#include "MathLib.h"
 #include "Window.h"
 #include "Input.h"
 #include "ThreadPool.h"
 #include "Primitives.h"
-#include "Random.h"
 #include "BVH.h"
-#include "Util.h"
 #include "GLTFLoader.h"
 
 #define WIN32_LEAN_AND_MEAN
@@ -172,19 +169,28 @@ private:
 
 };
 
-enum DebugRenderView
+enum RenderMode
 {
-	DebugRenderView_None,
-	DebugRenderView_Normal,
-	DebugRenderView_Throughput,
-	DebugRenderView_RayDepth,
-	DebugRenderView_BVHDepth,
-	DebugRenderView_NumViews
+	RENDER_MODE_COMPARISON,
+	RENDER_MODE_BRUTE_FORCE,
+	RENDER_MODE_NEXT_EVENT_EST,
+	RENDER_MODE_NUM_MODES
 };
 
-const std::vector<const char*> debug_render_view_names =
+const std::vector<const char*> render_mode_labels =
 {
-	"None", "Normal", "Throughput", "Ray depth", "BVH depth"
+	"Comparison", "Brute force", "Next event estimation"
+};
+
+enum DebugRenderMode
+{
+	DEBUG_RENDER_MODE_NONE,
+	DEBUG_RENDER_MODE_NUM_MODES
+};
+
+const std::vector<const char*> debug_render_mode_labels =
+{
+	"None"
 };
 
 struct Object;
@@ -205,7 +211,8 @@ struct Data
 	std::vector<Material> materials;
 	Camera camera;
 
-	DebugRenderView debug_view = DebugRenderView_None;
+	RenderMode render_mode = RENDER_MODE_COMPARISON;
+	DebugRenderMode debug_render_mode = DEBUG_RENDER_MODE_NONE;
 
 	struct Statistics
 	{
@@ -338,7 +345,7 @@ LightSample GetRandomLightSourceForSample(const Vec3& hit_pos)
 		sample.obj_idx = data.light_source_indices[RandomUInt32Range(0u, (uint32_t)data.light_source_indices.size() - 1)];
 		const Object& light_source = data.objects[sample.obj_idx];
 
-		if (light_source.has_bvh)
+ 		if (light_source.has_bvh)
 		{
 			EXCEPT("GetRandomLightSourceForSample", "Tried to get a sample from a light source that has a BVH, which is currently not implemented");
 		}
@@ -346,12 +353,14 @@ LightSample GetRandomLightSourceForSample(const Vec3& hit_pos)
 		{
 			if (light_source.primitive.type == PrimitiveType_Sphere)
 			{
-				sample.pos = light_source.primitive.RandomPoint();
+				sample.pos = light_source.primitive.RandomPointFacing(hit_pos);
+				//sample.pos = light_source.primitive.RandomPoint();
 				sample.normal = light_source.primitive.Normal(sample.pos);
 				sample.emission = data.materials[light_source.mat_index].emissive * data.materials[light_source.mat_index].intensity;
 
 				float dist_to_light = Vec3Length(sample.pos - hit_pos);
-				sample.solid_angle = GetSphereSolidAngle(light_source.primitive.sphere, dist_to_light * dist_to_light);
+				sample.solid_angle = (2.0f * PI * light_source.primitive.sphere.radius_sq) / (dist_to_light * dist_to_light);
+				//sample.solid_angle = (4.0f * PI * light_source.primitive.sphere.radius_sq) / (dist_to_light * dist_to_light);
 			}
 			else
 			{
@@ -579,7 +588,7 @@ Vec4 TracePathNEE(Ray& ray, uint8_t ray_depth, bool last_specular)
 	Vec3 indirect_light = Vec3(0.0f);
 
 	// --------------------------------------------------------------------------------------
-	// Next event estimation - Evaluate direct and indirect light at vertex along the path
+	// Next event estimation - Evaluate direct and indirect diffuse light at vertex along the path
 
 	if (data.light_source_indices.size() > 0)
 	{
@@ -596,15 +605,18 @@ Vec4 TracePathNEE(Ray& ray, uint8_t ray_depth, bool last_specular)
 		// We dont need to trace a ray to the random point on the light if they dont face each other
 		if (NdotL > 0.0f && NLdotL > 0.0f)
 		{
-			Ray shadow_ray(hit.pos + vert_to_light * RAY_REFLECT_NUDGE_MULTIPLIER, vert_to_light, dist_to_light - 5.0f * RAY_REFLECT_NUDGE_MULTIPLIER);
+			Ray shadow_ray(hit.pos + vert_to_light * RAY_REFLECT_NUDGE_MULTIPLIER, vert_to_light, dist_to_light - 2.0f * RAY_REFLECT_NUDGE_MULTIPLIER);
 			IntersectScene(shadow_ray);
 			bool occluded = shadow_ray.payload.obj_idx != ~0u;
 		
 			// If the ray towards the light source was not occluded, we need to determine the energy coming from the light source
 			if (!occluded)
 			{
+				// This should happen in the diffuse light sampling, so that the chance of going this path
+				// is already proportionate to the specularity/refractivity
+				// Or we adjust the weight here based on (1 - specularity - reflectivity)
 				float solid_angle = NLdotL * light_sample.solid_angle;
-				direct_light = light_sample.emission * solid_angle * brdf_diffuse * NdotL;
+				direct_light = light_sample.emission * solid_angle * brdf_diffuse * NdotL * data.light_source_indices.size();
 			}
 		}
 	}
@@ -735,7 +747,7 @@ void Render()
 	}
 
 	UVec2 framebuffer_size = Window::GetFramebufferSize();
-	UVec2 job_size(8, 8);
+	UVec2 job_size(16, 16);
 	Vec2 inv_framebuffer_size(1.0f / framebuffer_size.x, 1.0f / framebuffer_size.y);
 
 	data.num_accumulated++;
@@ -754,27 +766,28 @@ void Render()
 
 						Ray ray = data.camera.GetRay(screen_u, screen_v);
 						Vec4 final_color = Vec4(0.0f);
-#if 1
-						final_color = TracePathNEE(ray, 0, false);
-						//final_color = TracePath(ray, 0);
-#else
-						if (x < (framebuffer_size.x / 2))
+
+						if (data.render_mode == RENDER_MODE_COMPARISON)
+						{
+							if (x < (framebuffer_size.x / 2))
+								final_color = TracePath(ray, 0);
+							else
+								final_color = TracePathNEE(ray, 0, false);
+						}
+						else if (data.render_mode == RENDER_MODE_BRUTE_FORCE)
+						{
 							final_color = TracePath(ray, 0);
-						else
+						}
+						else if (data.render_mode == RENDER_MODE_NEXT_EVENT_EST)
+						{
 							final_color = TracePathNEE(ray, 0, false);
-#endif
+						}
+
 						data.total_energy_received += final_color.x + final_color.y + final_color.z;
 						uint32_t framebuffer_pos = (y + v) * framebuffer_size.x + (x + u);
 
-						if (data.debug_view == DebugRenderView_None)
-						{
-							data.accumulator[framebuffer_pos] += final_color;
-							data.pixels[framebuffer_pos] = Vec4ToUint(data.accumulator[framebuffer_pos] / data.num_accumulated);
-						}
-						else
-						{
-							data.pixels[framebuffer_pos] = Vec4ToUint(final_color);
-						}
+						data.accumulator[framebuffer_pos] += final_color;
+						data.pixels[framebuffer_pos] = Vec4ToUint(data.accumulator[framebuffer_pos] / data.num_accumulated);
 					}
 	};
 
@@ -844,7 +857,9 @@ int main(int argc, char* argv[])
 	data.objects.emplace_back("Light", light_mesh, 2, BVH::BuildOption_SAHSplitIntervals);
 	data.light_source_indices.emplace_back(data.objects.size() - 1);*/
 
-	data.objects.emplace_back("Spherical light", Primitive(Sphere(Vec3(0.0f, 10.0f, 0.0f), 5.0f * 5.0f)), 2);
+	data.objects.emplace_back("Spherical light0", Primitive(Sphere(Vec3(10.0f, 10.0f, 10.0f), 5.0f)), 2);
+	data.light_source_indices.emplace_back(data.objects.size() - 1);
+	data.objects.emplace_back("Spherical light1", Primitive(Sphere(Vec3(-10.0f, 10.0f, -10.0f), 5.0f)), 2);
 	data.light_source_indices.emplace_back(data.objects.size() - 1);
 
 	std::chrono::high_resolution_clock::time_point curr_time = std::chrono::high_resolution_clock::now(),
@@ -874,14 +889,33 @@ int main(int argc, char* argv[])
 		ImGui::Text("Traced ray count: %u", data.stats.traced_rays);
 		ImGui::Text("Total energy received: %.3f", data.total_energy_received / data.num_accumulated);
 		ImGui::SliderInt("Max ray depth", &data.max_ray_depth, 1, 8);
-		if (ImGui::BeginCombo("Debug render view", debug_render_view_names[data.debug_view]))
+		if (ImGui::BeginCombo("Render mode", render_mode_labels[data.render_mode]))
 		{
-			for (size_t i = 0; i < DebugRenderView_NumViews; ++i)
+			for (size_t i = 0; i < RENDER_MODE_NUM_MODES; ++i)
 			{
-				bool is_selected = i == data.debug_view;
-				if (ImGui::Selectable(debug_render_view_names[i], is_selected))
+				bool is_selected = i == data.render_mode;
+				if (ImGui::Selectable(render_mode_labels[i], is_selected))
 				{
-					data.debug_view = (DebugRenderView)i;
+					data.render_mode = (RenderMode)i;
+					ResetAccumulator();
+				}
+
+				if (is_selected)
+				{
+					ImGui::SetItemDefaultFocus();
+				}
+			}
+
+			ImGui::EndCombo();
+		}
+		if (ImGui::BeginCombo("Debug render view", debug_render_mode_labels[data.debug_render_mode]))
+		{
+			for (size_t i = 0; i < DEBUG_RENDER_MODE_NUM_MODES; ++i)
+			{
+				bool is_selected = i == data.debug_render_mode;
+				if (ImGui::Selectable(debug_render_mode_labels[i], is_selected))
+				{
+					data.debug_render_mode = (DebugRenderMode)i;
 				}
 
 				if (is_selected)

@@ -1,6 +1,5 @@
 #include "Common.h"
 #include "Primitives.h"
-#include "Random.h"
 
 #include "imgui/imgui.h"
 
@@ -194,7 +193,7 @@ Vec3 RandomPointSphere(const Sphere& sphere)
 		dir = Vec3(RandomFloat() * 2.0f - 1.0f, RandomFloat() * 2.0f - 1.0f, RandomFloat() * 2.0f - 1.0f);
 	} while (Vec3Dot(dir, dir) > 1.0f);
 
-	return sphere.center + std::sqrtf(sphere.radius_sq) * Vec3Normalize(dir);
+	return sphere.center + sphere.radius * Vec3Normalize(dir);
 }
 
 Vec3 RandomPointPlane(const Plane& plane)
@@ -205,6 +204,29 @@ Vec3 RandomPointPlane(const Plane& plane)
 Vec3 RandomPointAABB(const AABB& aabb)
 {
 	EXCEPT("RandomPointAABB", "Not implemented");
+}
+
+Vec3 RandomPointTriangleFacing(const Triangle& triangle, const Vec3& pos)
+{
+	EXCEPT("RandomPointTriangleFacing", "Not implemented");
+}
+
+Vec3 RandomPointSphereFacing(const Sphere& sphere, const Vec3& pos)
+{
+	Vec3 to_pos = Vec3Normalize(pos - sphere.center);
+	Vec3 dir = Util::UniformHemisphereSample(to_pos);
+
+	return sphere.center + sphere.radius * dir;
+}
+
+Vec3 RandomPointPlaneFacing(const Plane& plane, const Vec3& pos)
+{
+	EXCEPT("RandomPointPlaneFacing", "Not implemented");
+}
+
+Vec3 RandomPointAABBFacing(const AABB& aabb, const Vec3& pos)
+{
+	EXCEPT("RandomPointAABBFacing", "Not implemented");
 }
 
 AABB TriangleBounds(const Triangle& triangle)
@@ -222,7 +244,7 @@ AABB TriangleBounds(const Triangle& triangle)
 
 AABB SphereBounds(const Sphere& sphere)
 {
-	return { .pmin = sphere.center - std::sqrtf(sphere.radius_sq), .pmax = sphere.center + std::sqrtf(sphere.radius_sq) };
+	return { .pmin = sphere.center - sphere.radius, .pmax = sphere.center + sphere.radius };
 }
 
 Vec3 GetSphereCentroid(const Sphere& sphere)
@@ -243,11 +265,6 @@ Vec3 SphereCentroid(const Sphere& sphere)
 Vec3 AABBCentroid(const AABB& aabb)
 {
 	return Vec3Lerp(aabb.pmin, aabb.pmax, 0.5f);
-}
-
-float GetSphereSolidAngle(const Sphere& sphere, float dist_sq)
-{
-	return (4.0f * PI * sphere.radius_sq) / dist_sq;
 }
 
 float GetTriangleArea(const Triangle& triangle)
@@ -316,6 +333,21 @@ Vec3 Primitive::RandomPoint() const
 		return RandomPointPlane(plane);
 	case PrimitiveType_AABB:
 		return RandomPointAABB(aabb);
+	}
+}
+
+Vec3 Primitive::RandomPointFacing(const Vec3& pos) const
+{
+	switch (type)
+	{
+	case PrimitiveType_Triangle:
+		return RandomPointTriangleFacing(triangle, pos);
+	case PrimitiveType_Sphere:
+		return RandomPointSphereFacing(sphere, pos);
+	case PrimitiveType_Plane:
+		return RandomPointPlaneFacing(plane, pos);
+	case PrimitiveType_AABB:
+		return RandomPointAABBFacing(aabb, pos);
 	}
 }
 

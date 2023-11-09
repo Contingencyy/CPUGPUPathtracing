@@ -1,5 +1,4 @@
 #pragma once
-#include "MathLib.h"
 
 struct Vertex;
 struct Mesh;

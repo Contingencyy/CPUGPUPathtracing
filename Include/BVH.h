@@ -1,5 +1,4 @@
 #pragma once
-#include "MathLib.h"
 #include "Primitives.h"
 
 class BVH
