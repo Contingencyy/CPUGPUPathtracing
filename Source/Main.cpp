@@ -202,8 +202,6 @@ struct Data
 	std::vector<Vec4> accumulator;
 	uint32_t num_accumulated = 0;
 	double total_energy_received = 0.0f;
-	bool pause_rendering = false;
-	int32_t max_ray_depth = 5;
 
 	std::vector<Object> objects;
 	std::vector<uint32_t> light_source_indices;
@@ -223,13 +221,20 @@ struct Data
 			traced_rays = 0;
 		}
 	} stats;
+
+	struct Settings
+	{
+		int32_t max_ray_depth = 5;
+		bool pause_rendering = false;
+		bool next_event_estimation_enabled = true;
+	} settings;
 } static data;
 
 void ResetAccumulator()
 {
 	data.num_accumulated = 0;
 	std::fill(data.accumulator.begin(), data.accumulator.end(), Vec4(0.0f));
-	data.total_energy_received = 0.0f;
+	data.total_energy_received = 0.0;
 }
 
 struct Object
@@ -330,7 +335,9 @@ HitResult GetRayHitResult(const Ray& ray)
 struct LightSample
 {
 	Vec3 pos = Vec3(0.0f);
-	Vec3 normal = Vec3(0.0f, -1.0f, 0.0f);
+	Vec3 to_light = Vec3(0.0f);
+	float distance = 0.0f;
+	Vec3 normal = Vec3(0.0f, 0.0f, 0.0f);
 	Vec3 emission = Vec3(0.0f);
 	float solid_angle = 0.0f;
 	uint32_t obj_idx = ~0u;
@@ -358,9 +365,11 @@ LightSample GetRandomLightSourceForSample(const Vec3& hit_pos)
 				sample.normal = light_source.primitive.Normal(sample.pos);
 				sample.emission = data.materials[light_source.mat_index].emissive * data.materials[light_source.mat_index].intensity;
 
-				float dist_to_light = Vec3Length(sample.pos - hit_pos);
-				sample.solid_angle = (2.0f * PI * light_source.primitive.sphere.radius_sq) / (dist_to_light * dist_to_light);
-				//sample.solid_angle = (4.0f * PI * light_source.primitive.sphere.radius_sq) / (dist_to_light * dist_to_light);
+				sample.to_light = sample.pos - hit_pos;
+				sample.distance = Vec3Length(sample.to_light);
+				sample.to_light = Vec3Normalize(sample.to_light);
+				sample.solid_angle = (2.0f * PI * light_source.primitive.sphere.radius_sq) / (sample.distance * sample.distance);
+				//sample.solid_angle = (4.0f * PI * light_source.primitive.sphere.radius_sq) / (sample.distance * sample.distance);
 			}
 			else
 			{
@@ -372,267 +381,156 @@ LightSample GetRandomLightSourceForSample(const Vec3& hit_pos)
 	return sample;
 }
 
-//Vec4 TracePath(Ray& ray)
-//{
-//	Vec3 throughput = Vec3(1.0f);
-//	Vec3 energy = Vec3(0.0f);
-//	Vec3 debug_color = Vec3(0.0f);
-//
-//	uint8_t ray_depth = 0;
-//	bool last_specular = false;
-//
-//	//while (true)
-//	while (ray_depth <= data.max_ray_depth)
-//	{
-//		IntersectScene(ray);
-//
-//		if (ray_depth == 0 && data.debug_view == DebugRenderView_BVHDepth)
-//			debug_color = Vec3Lerp(Vec3(0.0f, 1.0f, 0.0f), Vec3(1.0f, 0.0f, 0.0f), std::min(1.0f, (float)ray.payload.bvh_depth / 30.0f));
-//
-//		// We have not hit any geometry, so we stop the path
-//		if (ray.payload.obj_idx == ~0u)
-//		{
-//			/*if (ray_depth == 0)
-//			{
-//				energy = Vec3(0.55f, 0.8f, 0.9f);
-//			}*/
-//			break;
-//		}
-//
-//		HitResult hit_result = GetRayHitResult(ray);
-//
-//		// We have hit a light source, so we stop
-//		if (hit_result.mat->is_light)
-//		{
-//			if (ray_depth == 0 || last_specular)
-//			{
-//				energy += throughput * hit_result.mat->emissive * hit_result.mat->intensity;
-//				last_specular = false;
-//			}
-//			break;
-//		}
-//
-//		Vec3 brdf_diffuse = hit_result.mat->albedo * INV_PI;
-//
-//		// Next event estimation, evaluate both direct and indirect light at vertex
-//		// Direct lighting - Sample a random light source
-//		float diffuse_weight = std::max(0.0f, 1.0f - (hit_result.mat->specular + hit_result.mat->refractivity));
-//		if (data.light_source_indices.size() > 0 && diffuse_weight > 0.0f)
-//		{
-//			// TODO: The skybox should also be a light source, currently its not accounted for
-//			Vec3 light_pos = Vec3(0.0f);
-//			Vec3 light_normal = Vec3(0.0f, -1.0f, 0.0f);
-//			Vec3 light_emission = Vec3(0.0f);
-//			float light_area = 0.0f;
-//			uint32_t light_obj_idx = ~0u;
-//			GetRandomLightSourceForSample(light_pos, light_normal, light_emission, light_area, light_obj_idx);
-//
-//			Vec3 vert_to_light = light_pos - hit_result.pos;
-//			float dist_to_light = Vec3Length(vert_to_light);
-//			vert_to_light = Vec3Normalize(vert_to_light);
-//
-//			float NdotL = Vec3Dot(hit_result.normal, vert_to_light);
-//			float NLdotL = Vec3Dot(light_normal, -vert_to_light);
-//
-//			// We dont need to trace a ray to the random point on the light if they dont face each other
-//			if (NdotL > 0.0f && NLdotL > 0.0f)
-//			{
-//				Ray shadow_ray(hit_result.pos + vert_to_light * RAY_REFLECT_NUDGE_MULTIPLIER, vert_to_light, dist_to_light);
-//				IntersectScene(shadow_ray);
-//				bool occluded = shadow_ray.payload.obj_idx != light_obj_idx;
-//
-//				// If the ray towards the light source was not occluded, we need to determine the energy coming from the light source
-//				if (!occluded)
-//				{
-//					float solid_angle = (NLdotL * light_area) / (dist_to_light * dist_to_light);
-//					float light_pdf = 1.0f / solid_angle;
-//
-//					// TODO: Is this correct? Do we need to adjust the weight of the direct light like this?
-//					energy += light_emission * solid_angle * brdf_diffuse * NdotL;
-//					//energy += throughput * (NdotL / light_pdf) * brdf_diffuse * light_emission * diffuse_weight;
-//				}
-//			}
-//		}
-//
-//		// Indirect lighting - Choose a path between diffuse, specular, or refracted
-//		{
-//			float r = RandomFloat();
-//
-//			// Specular reflection
-//			if (r < hit_result.mat->specular)
-//			{
-//				Vec3 specular_dir = Util::Reflect(ray.direction, hit_result.normal);
-//				ray = Ray(hit_result.pos + specular_dir * RAY_REFLECT_NUDGE_MULTIPLIER, specular_dir);
-//				throughput *= hit_result.mat->albedo;
-//				last_specular = true;
-//			}
-//			// Dielectrics
-//			else if (r < hit_result.mat->specular + hit_result.mat->refractivity)
-//			{
-//				Vec3 N = hit_result.normal;
-//
-//				float cosi = std::clamp(Vec3Dot(N, ray.direction), -1.0f, 1.0f);
-//				float etai = 1.0f, etat = hit_result.mat->ior;
-//
-//				float Fr = 1.0f;
-//				bool inside = true;
-//
-//				if (cosi < 0.0f)
-//				{
-//					cosi = -cosi;
-//					inside = false;
-//				}
-//				else
-//				{
-//					std::swap(etai, etat);
-//					N = -N;
-//				}
-//
-//				float eta = etai / etat;
-//				float k = 1.0f - eta * eta * (1.0f - cosi * cosi);
-//
-//				if (k >= 0.0f)
-//				{
-//					Vec3 refract_dir = Util::Refract(ray.direction, N, eta, cosi, k);
-//
-//					float angle_in = Vec3Dot(ray.direction, hit_result.normal);
-//					float angle_out = Vec3Dot(refract_dir, hit_result.normal);
-//
-//					Fr = Util::Fresnel(angle_in, angle_out, etai, etat);
-//					if (RandomFloat() > Fr)
-//					{
-//						// TODO: Fix this, it no longer is applied to the correct ray
-//						if (inside)
-//						{
-//							Vec3 absorption(0.0f);
-//							absorption.x = std::expf(-hit_result.mat->absorption.x * ray.t);
-//							absorption.y = std::expf(-hit_result.mat->absorption.y * ray.t);
-//							absorption.z = std::expf(-hit_result.mat->absorption.z * ray.t);
-//
-//							throughput *= absorption;
-//						}
-//
-//						ray = Ray(hit_result.pos + refract_dir * RAY_REFLECT_NUDGE_MULTIPLIER, refract_dir);
-//						throughput *= hit_result.mat->albedo;
-//					}
-//					else
-//					{
-//						Vec3 specular_dir = Util::Reflect(ray.direction, hit_result.normal);
-//						ray = Ray(hit_result.pos + specular_dir * RAY_REFLECT_NUDGE_MULTIPLIER, specular_dir);
-//						throughput *= hit_result.mat->albedo;
-//						last_specular = true;
-//					}
-//				}
-//			}
-//			// Diffuse
-//			else
-//			{
-//				// TODO: Cosine weighted diffuse reflection
-//				Vec3 diffuse_dir = Util::UniformHemisphereSample(hit_result.normal);
-//				float NdotR = Vec3Dot(hit_result.normal, diffuse_dir);
-//				float hemisphere_pdf = 1.0f / (2.0f * PI);
-//
-//				ray = Ray(hit_result.pos + diffuse_dir * RAY_REFLECT_NUDGE_MULTIPLIER, diffuse_dir);
-//				throughput *= (NdotR / hemisphere_pdf) * brdf_diffuse;
-//			}
-//		}
-//
-//		if (ray_depth == 0 && data.debug_view == DebugRenderView_Throughput)
-//			debug_color = throughput;
-//		if (ray_depth == 0 && data.debug_view == DebugRenderView_Normal)
-//			debug_color = hit_result.normal;
-//
-//		ray_depth++;
-//	}
-//
-//	if (data.debug_view == DebugRenderView_RayDepth)
-//		debug_color = Vec3Lerp(Vec3(0.0f, 1.0f, 0.0f), Vec3(1.0f, 0.0f, 0.0f), std::min(1.0f, ((float)ray_depth + 1.0f) / ((float)data.max_ray_depth + 1.0f)));
-//
-//	if (data.debug_view != DebugRenderView_None)
-//		return Vec4(debug_color, 1.0f);
-//
-//	return Vec4(energy, 1.0f);
-//}
-
-Vec4 TracePathNEE(Ray& ray, uint8_t ray_depth, bool last_specular)
+Vec4 TracePathAdvanced(Ray& ray)
 {
-	// --------------------------------------------------------------------------------------
-	// Scene traversal, checking for special cases, etc.
+	Vec3 throughput = Vec3(1.0f);
+	Vec3 energy = Vec3(0.0f);
 
-	Vec4 final_color = Vec4(0.0f, 0.0f, 0.0f, 1.0f);
+	uint8_t ray_depth = 0;
+	bool is_specular_ray = false;
 
-	// We have exceeded the maximum amount of ray recursion, terminate path
-	if (ray_depth > data.max_ray_depth)
-		return final_color;
-
-	IntersectScene(ray);
-
-	// We have not hit any geometry, sample sky or return black
-	if (ray.payload.obj_idx == ~0u)
-		return final_color;
-
-	HitResult hit = GetRayHitResult(ray);
-
-	// If we hit a light source, we want to return black, unless we are currently tracing a specular ray
-	if (hit.mat->is_light)
+	while (ray_depth <= data.settings.max_ray_depth)
 	{
-		if (ray_depth == 0 || last_specular)
+		IntersectScene(ray);
+
+		// We did not hit anything, terminate path, or sample sky color and then terminate
+		if (ray.payload.obj_idx == ~0u)
+			break;
+
+		HitResult hit = GetRayHitResult(ray);
+
+		// If the hit object is a light source, we only want to add its energy to the path if it is
+		// a specular ray or the primary ray, but only if next event estimation is enabled.
+		// We need to do this because in next event estimation we evaluate direct and indirect light separately,
+		// so we would count direct lighting twice if we did not do this check.
+		if (hit.mat->is_light)
 		{
-			return Vec4(hit.mat->emissive * hit.mat->intensity, 1.0f);
-		}
-		return final_color;
-	}
-
-	Vec3 brdf_diffuse = hit.mat->albedo * INV_PI;
-	Vec3 direct_light = Vec3(0.0f);
-	Vec3 indirect_light = Vec3(0.0f);
-
-	// --------------------------------------------------------------------------------------
-	// Next event estimation - Evaluate direct and indirect diffuse light at vertex along the path
-
-	if (data.light_source_indices.size() > 0)
-	{
-		// TODO: The skybox should also be a light source, currently its not accounted for
-		LightSample light_sample = GetRandomLightSourceForSample(hit.pos);
-		
-		Vec3 vert_to_light = light_sample.pos - hit.pos;
-		float dist_to_light = Vec3Length(vert_to_light);
-		vert_to_light = Vec3Normalize(vert_to_light);
-		
-		float NdotL = Vec3Dot(hit.normal, vert_to_light);
-		float NLdotL = Vec3Dot(light_sample.normal, -vert_to_light);
-		
-		// We dont need to trace a ray to the random point on the light if they dont face each other
-		if (NdotL > 0.0f && NLdotL > 0.0f)
-		{
-			Ray shadow_ray(hit.pos + vert_to_light * RAY_REFLECT_NUDGE_MULTIPLIER, vert_to_light, dist_to_light - 2.0f * RAY_REFLECT_NUDGE_MULTIPLIER);
-			IntersectScene(shadow_ray);
-			bool occluded = shadow_ray.payload.obj_idx != ~0u;
-		
-			// If the ray towards the light source was not occluded, we need to determine the energy coming from the light source
-			if (!occluded)
+			if (!data.settings.next_event_estimation_enabled || ray_depth == 0 || is_specular_ray)
 			{
-				// This should happen in the diffuse light sampling, so that the chance of going this path
-				// is already proportionate to the specularity/refractivity
-				// Or we adjust the weight here based on (1 - specularity - reflectivity)
-				float solid_angle = NLdotL * light_sample.solid_angle;
-				direct_light = light_sample.emission * solid_angle * brdf_diffuse * NdotL * data.light_source_indices.size();
+				energy += throughput * hit.mat->emissive * hit.mat->intensity;
+			}
+			break;
+		}
+
+		// Choose a path for the next ray based on the material properties
+
+		Vec3 brdf_diffuse = hit.mat->albedo * INV_PI;
+		float diffuse_weight = std::max(0.0f, 1.0f - hit.mat->specular - hit.mat->refractivity);
+
+		// Evaluate direct light for current vertex
+		if (data.light_source_indices.size() > 0 &&
+			data.settings.next_event_estimation_enabled &&
+			diffuse_weight > 0.001f)
+		{
+			// TODO: The skybox should also be a light source, currently its not accounted for
+			LightSample light_sample = GetRandomLightSourceForSample(hit.pos);
+		
+			float NdotL = Vec3Dot(hit.normal, light_sample.to_light);
+			float NLdotL = Vec3Dot(light_sample.normal, -light_sample.to_light);
+		
+			// We dont need to trace a ray to the random point on the light if they dont face each other
+			if (NdotL > 0.0f && NLdotL > 0.0f)
+			{
+				Ray shadow_ray(hit.pos + light_sample.to_light * RAY_REFLECT_NUDGE_MULTIPLIER, light_sample.to_light, light_sample.distance- 2.0f * RAY_REFLECT_NUDGE_MULTIPLIER);
+				IntersectScene(shadow_ray);
+				bool occluded = shadow_ray.payload.obj_idx != ~0u;
+		
+				// If the ray towards the light source was not occluded, we need to determine the energy coming from the light source
+				if (!occluded)
+				{
+					float solid_angle = NLdotL * light_sample.solid_angle;
+					float light_pdf = 1.0f / solid_angle;
+
+					energy += throughput * (NdotL / light_pdf) * brdf_diffuse * light_sample.emission * data.light_source_indices.size() * diffuse_weight;
+				}
 			}
 		}
+
+		// Evaluate indirect light for current vertex
+		float r = RandomFloat();
+
+		if (r < hit.mat->specular)
+		{
+			Vec3 specular_dir = Util::Reflect(ray.direction, hit.normal);
+			ray = Ray(hit.pos + specular_dir * RAY_REFLECT_NUDGE_MULTIPLIER, specular_dir);
+
+			throughput *= hit.mat->albedo;
+			is_specular_ray = true;
+		}
+		else if (r < hit.mat->specular + hit.mat->refractivity)
+		{
+			Vec3 N = hit.normal;
+
+			float cosi = std::clamp(Vec3Dot(N, ray.direction), -1.0f, 1.0f);
+			float etai = 1.0f, etat = hit.mat->ior;
+
+			float Fr = 1.0f;
+			bool inside = true;
+
+			if (cosi < 0.0f)
+			{
+				cosi = -cosi;
+				inside = false;
+			}
+			else
+			{
+				std::swap(etai, etat);
+				N = -N;
+			}
+
+			float eta = etai / etat;
+			float k = 1.0f - eta * eta * (1.0f - cosi * cosi);
+
+			if (k >= 0.0f)
+			{
+				Vec3 refract_dir = Util::Refract(ray.direction, N, eta, cosi, k);
+
+				float angle_in = Vec3Dot(ray.direction, hit.normal);
+				float angle_out = Vec3Dot(refract_dir, hit.normal);
+
+				Fr = Util::Fresnel(angle_in, angle_out, etai, etat);
+				if (RandomFloat() > Fr)
+				{
+					throughput *= hit.mat->albedo;
+
+					if (inside)
+					{
+						Vec3 absorption(0.0f);
+						absorption.x = std::expf(-hit.mat->absorption.x * ray.t);
+						absorption.y = std::expf(-hit.mat->absorption.y * ray.t);
+						absorption.z = std::expf(-hit.mat->absorption.z * ray.t);
+
+						throughput *= absorption;
+					}
+
+					ray = Ray(hit.pos + refract_dir * RAY_REFLECT_NUDGE_MULTIPLIER, refract_dir);
+					is_specular_ray = true;
+				}
+				else
+				{
+					Vec3 specular_dir = Util::Reflect(ray.direction, hit.normal);
+					ray = Ray(hit.pos + specular_dir * RAY_REFLECT_NUDGE_MULTIPLIER, specular_dir);
+
+					throughput *= hit.mat->albedo;
+					is_specular_ray = true;
+				}
+			}
+		}
+		else
+		{
+			Vec3 diffuse_dir = Util::UniformHemisphereSample(hit.normal);
+			float NdotR = Vec3Dot(diffuse_dir, hit.normal);
+			float hemisphere_pdf = 1.0f / (PI * 2.0f);
+			ray = Ray(hit.pos + diffuse_dir * RAY_REFLECT_NUDGE_MULTIPLIER, diffuse_dir);
+
+			throughput *= (NdotR / hemisphere_pdf) * brdf_diffuse;
+			is_specular_ray = false;
+		}
+
+		ray_depth++;
 	}
 
-	// Indirect light
-	{
-		Vec3 diffuse_dir = Util::UniformHemisphereSample(hit.normal);
-		Ray diffuse_ray(hit.pos + diffuse_dir * RAY_REFLECT_NUDGE_MULTIPLIER, diffuse_dir);
-		float NdotR = Vec3Dot(diffuse_dir, hit.normal);
-		Vec4 irradiance = NdotR * TracePathNEE(diffuse_ray, ray_depth + 1, false);
-
-		indirect_light = 2.0f * PI * brdf_diffuse * irradiance.xyz;
-	}
-
-	final_color.xyz = direct_light + indirect_light;
-	return final_color;
+	return Vec4(energy, 1.0f);
 }
 
 Vec4 TracePath(Ray& ray, uint8_t ray_depth)
@@ -643,7 +541,7 @@ Vec4 TracePath(Ray& ray, uint8_t ray_depth)
 	Vec4 final_color = Vec4(0.0f, 0.0f, 0.0f, 1.0f);
 
 	// We have exceeded the maximum amount of ray recursion, terminate path
-	if (ray_depth > data.max_ray_depth)
+	if (ray_depth > data.settings.max_ray_depth)
 		return final_color;
 
 	IntersectScene(ray);
@@ -726,6 +624,7 @@ Vec4 TracePath(Ray& ray, uint8_t ray_depth)
 		}
 	}
 	// Diffuse
+	else
 	{
 		Vec3 diffuse_dir = Util::UniformHemisphereSample(hit.normal);
 		Ray diffuse_ray(hit.pos + diffuse_dir * RAY_REFLECT_NUDGE_MULTIPLIER, diffuse_dir);
@@ -741,7 +640,7 @@ Vec4 TracePath(Ray& ray, uint8_t ray_depth)
 
 void Render()
 {
-	if (data.pause_rendering)
+	if (data.settings.pause_rendering)
 	{
 		return;
 	}
@@ -772,7 +671,7 @@ void Render()
 							if (x < (framebuffer_size.x / 2))
 								final_color = TracePath(ray, 0);
 							else
-								final_color = TracePathNEE(ray, 0, false);
+								final_color = TracePathAdvanced(ray);
 						}
 						else if (data.render_mode == RENDER_MODE_BRUTE_FORCE)
 						{
@@ -780,10 +679,10 @@ void Render()
 						}
 						else if (data.render_mode == RENDER_MODE_NEXT_EVENT_EST)
 						{
-							final_color = TracePathNEE(ray, 0, false);
+							final_color = TracePathAdvanced(ray);
 						}
 
-						data.total_energy_received += final_color.x + final_color.y + final_color.z;
+						data.total_energy_received += (double)(final_color.x + final_color.y + final_color.z) * 0.001;
 						uint32_t framebuffer_pos = (y + v) * framebuffer_size.x + (x + u);
 
 						data.accumulator[framebuffer_pos] += final_color;
@@ -823,12 +722,12 @@ int main(int argc, char* argv[])
 	data.materials.emplace_back(Vec3(0.2f, 0.2f, 0.8f), 0.0f);
 	data.materials.emplace_back(Vec3(0.4f), 0.0f);
 	data.materials.emplace_back(Vec3(1.0f, 0.95f, 0.8f), 10.0f, true);
-	data.materials.emplace_back(Vec3(1.0f), 0.1f, 0.9f, Vec3(0.2f, 0.8f, 0.8f), 1.517f);
+	data.materials.emplace_back(Vec3(1.0f), 0.0f, 1.0f, Vec3(0.2f, 0.8f, 0.8f), 1.517f);
 
 	// Load mesh and build its BVH
-	Mesh dragon_mesh = GLTFLoader::Load("Assets/Models/Dragon/DragonAttenuation.gltf");
-	//Mesh dragon_mesh = GLTFLoader::Load("Assets/Models/Cube/Cube.gltf");
-	data.objects.emplace_back("Dragon", dragon_mesh, 0, BVH::BuildOption_SAHSplitIntervals);
+	//Mesh dragon_mesh = GLTFLoader::Load("Assets/Models/Dragon/DragonAttenuation.gltf");
+	Mesh dragon_mesh = GLTFLoader::Load("Assets/Models/Cube/Cube.gltf");
+	data.objects.emplace_back("Dragon", dragon_mesh, 3, BVH::BuildOption_SAHSplitIntervals);
 
 	Mesh ground_mesh;
 	ground_mesh.indices.push_back(0);
@@ -881,14 +780,15 @@ int main(int argc, char* argv[])
 
 		ImGui::Begin("General");
 		ImGui::Text("Accumulated frames: %u", data.num_accumulated);
-		if (ImGui::Checkbox("Pause rendering", &data.pause_rendering))
+		if (ImGui::Checkbox("Pause rendering", &data.settings.pause_rendering))
 		{
 			ResetAccumulator();
 		}
 		ImGui::Text("Frame time (CPU): %.3f ms", delta_time.count() * 1000.0f);
 		ImGui::Text("Traced ray count: %u", data.stats.traced_rays);
-		ImGui::Text("Total energy received: %.3f", data.total_energy_received / data.num_accumulated);
-		ImGui::SliderInt("Max ray depth", &data.max_ray_depth, 1, 8);
+		ImGui::Text("Total energy received: %.3f", data.total_energy_received / (double)data.num_accumulated);
+		ImGui::SliderInt("Max ray depth", &data.settings.max_ray_depth, 1, 16);
+		ImGui::Checkbox("Next event estimation", &data.settings.next_event_estimation_enabled);
 		if (ImGui::BeginCombo("Render mode", render_mode_labels[data.render_mode]))
 		{
 			for (size_t i = 0; i < RENDER_MODE_NUM_MODES; ++i)
