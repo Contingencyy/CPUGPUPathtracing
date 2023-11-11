@@ -340,7 +340,7 @@ struct LightSample
 	float distance = 0.0f;
 	Vec3 normal = Vec3(0.0f, 0.0f, 0.0f);
 	Vec3 emission = Vec3(0.0f);
-	float solid_angle = 0.0f;
+	float area = 0.0f;
 	uint32_t obj_idx = ~0u;
 };
 
@@ -369,8 +369,9 @@ LightSample GetRandomLightSourceForSample(const Vec3& hit_pos)
 				sample.to_light = sample.pos - hit_pos;
 				sample.distance = Vec3Length(sample.to_light);
 				sample.to_light = Vec3Normalize(sample.to_light);
-				sample.solid_angle = (2.0f * PI * light_source.primitive.sphere.radius_sq) / (sample.distance * sample.distance);
-				//sample.solid_angle = (4.0f * PI * light_source.primitive.sphere.radius_sq) / (sample.distance * sample.distance);
+				// We only sample the visible part of the sphere (hemisphere), so we only calculate half of the sphere's area
+				sample.area = 2.0f * PI * light_source.primitive.sphere.radius_sq;
+				//sample.area = 4.0f * PI * light_source.primitive.sphere.radius_sq;
 			}
 			else
 			{
@@ -432,14 +433,14 @@ Vec4 TracePathAdvanced(Ray& ray)
 			// We dont need to trace a ray to the random point on the light if they dont face each other
 			if (NdotL > 0.0f && NLdotL > 0.0f)
 			{
-				Ray shadow_ray(hit.pos + light_sample.to_light * RAY_REFLECT_NUDGE_MULTIPLIER, light_sample.to_light, light_sample.distance- 2.0f * RAY_REFLECT_NUDGE_MULTIPLIER);
+				Ray shadow_ray(hit.pos + light_sample.to_light * RAY_REFLECT_NUDGE_MULTIPLIER, light_sample.to_light, light_sample.distance - 2.0f * RAY_REFLECT_NUDGE_MULTIPLIER);
 				IntersectScene(shadow_ray);
 				bool occluded = shadow_ray.payload.obj_idx != ~0u;
 		
 				// If the ray towards the light source was not occluded, we need to determine the energy coming from the light source
 				if (!occluded)
 				{
-					float solid_angle = NLdotL * light_sample.solid_angle;
+					float solid_angle = (NLdotL * light_sample.area) / (light_sample.distance * light_sample.distance);
 					float light_pdf = 1.0f / solid_angle;
 
 					energy += throughput * (NdotL / light_pdf) * brdf_diffuse * light_sample.emission * data.light_source_indices.size() * diffuse_weight;
@@ -793,21 +794,23 @@ int main(int argc, char* argv[])
 		Update(delta_time.count());
 		Render();
 
-		ImGui::Begin("General");
+		ImGui::Begin("Renderer");
 
 		ImGui::SetNextItemOpen(true, ImGuiCond_Once);
 		if (ImGui::CollapsingHeader("Statistics"))
 		{
 			ImGui::Indent(10.0f);
 
+			ImGui::Text("FPS: %u", (uint32_t)(1.0f / delta_time.count()));
+			ImGui::Text("Frame time (CPU): %.3f ms", delta_time.count() * 1000.0f);
+			ImGui::Text("Traced ray count: %u", data.stats.traced_rays);
+			ImGui::Text("Total energy received: %.3f", data.total_energy_received / (double)data.num_accumulated);
+
 			ImGui::Text("Accumulated frames: %u", data.num_accumulated);
 			if (ImGui::Checkbox("Pause rendering", &data.pause_rendering))
 			{
 				ResetAccumulator();
 			}
-			ImGui::Text("Frame time (CPU): %.3f ms", delta_time.count() * 1000.0f);
-			ImGui::Text("Traced ray count: %u", data.stats.traced_rays);
-			ImGui::Text("Total energy received: %.3f", data.total_energy_received / (double)data.num_accumulated);
 
 			ImGui::Unindent(10.0f);
 		}
