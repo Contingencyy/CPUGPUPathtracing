@@ -201,6 +201,7 @@ struct Data
 	std::vector<uint32_t> pixels;
 	std::vector<Vec4> accumulator;
 	uint32_t num_accumulated = 0;
+	bool pause_rendering = false;
 	double total_energy_received = 0.0f;
 
 	std::vector<Object> objects;
@@ -225,8 +226,8 @@ struct Data
 	struct Settings
 	{
 		int32_t max_ray_depth = 5;
-		bool pause_rendering = false;
 		bool next_event_estimation_enabled = true;
+		bool cosine_weighted_diffuse_reflection_enabled = true;
 	} settings;
 } static data;
 
@@ -518,9 +519,23 @@ Vec4 TracePathAdvanced(Ray& ray)
 		}
 		else
 		{
-			Vec3 diffuse_dir = Util::UniformHemisphereSample(hit.normal);
-			float NdotR = Vec3Dot(diffuse_dir, hit.normal);
-			float hemisphere_pdf = 1.0f / (PI * 2.0f);
+			Vec3 diffuse_dir = Vec3(0.0f);
+			float NdotR = 0.0f;
+			float hemisphere_pdf = 0.0f;
+
+			if (data.settings.cosine_weighted_diffuse_reflection_enabled)
+			{
+				diffuse_dir = Util::CosineWeightedDiffuseReflection(hit.normal);
+				NdotR = Vec3Dot(diffuse_dir, hit.normal);
+				hemisphere_pdf = 1.0f / (2.0f * PI);
+			}
+			else
+			{
+				diffuse_dir = Util::UniformHemisphereSample(hit.normal);
+				NdotR = Vec3Dot(diffuse_dir, hit.normal);
+				hemisphere_pdf = NdotR / PI;
+			}
+
 			ray = Ray(hit.pos + diffuse_dir * RAY_REFLECT_NUDGE_MULTIPLIER, diffuse_dir);
 
 			throughput *= (NdotR / hemisphere_pdf) * brdf_diffuse;
@@ -640,7 +655,7 @@ Vec4 TracePath(Ray& ray, uint8_t ray_depth)
 
 void Render()
 {
-	if (data.settings.pause_rendering)
+	if (data.pause_rendering)
 	{
 		return;
 	}
@@ -779,53 +794,74 @@ int main(int argc, char* argv[])
 		Render();
 
 		ImGui::Begin("General");
-		ImGui::Text("Accumulated frames: %u", data.num_accumulated);
-		if (ImGui::Checkbox("Pause rendering", &data.settings.pause_rendering))
+
+		ImGui::SetNextItemOpen(true, ImGuiCond_Once);
+		if (ImGui::CollapsingHeader("Statistics"))
 		{
-			ResetAccumulator();
-		}
-		ImGui::Text("Frame time (CPU): %.3f ms", delta_time.count() * 1000.0f);
-		ImGui::Text("Traced ray count: %u", data.stats.traced_rays);
-		ImGui::Text("Total energy received: %.3f", data.total_energy_received / (double)data.num_accumulated);
-		ImGui::SliderInt("Max ray depth", &data.settings.max_ray_depth, 1, 16);
-		ImGui::Checkbox("Next event estimation", &data.settings.next_event_estimation_enabled);
-		if (ImGui::BeginCombo("Render mode", render_mode_labels[data.render_mode]))
-		{
-			for (size_t i = 0; i < RENDER_MODE_NUM_MODES; ++i)
+			ImGui::Indent(10.0f);
+
+			ImGui::Text("Accumulated frames: %u", data.num_accumulated);
+			if (ImGui::Checkbox("Pause rendering", &data.pause_rendering))
 			{
-				bool is_selected = i == data.render_mode;
-				if (ImGui::Selectable(render_mode_labels[i], is_selected))
+				ResetAccumulator();
+			}
+			ImGui::Text("Frame time (CPU): %.3f ms", delta_time.count() * 1000.0f);
+			ImGui::Text("Traced ray count: %u", data.stats.traced_rays);
+			ImGui::Text("Total energy received: %.3f", data.total_energy_received / (double)data.num_accumulated);
+
+			ImGui::Unindent(10.0f);
+		}
+
+		ImGui::SetNextItemOpen(true, ImGuiCond_Once);
+		if (ImGui::CollapsingHeader("Settings"))
+		{
+			ImGui::Indent(10.0f);
+
+			ImGui::SliderInt("Max ray depth", &data.settings.max_ray_depth, 1, 16);
+			ImGui::Checkbox("Next event estimation", &data.settings.next_event_estimation_enabled);
+			ImGui::Checkbox("Cosine-weighted diffuse reflection", &data.settings.cosine_weighted_diffuse_reflection_enabled);
+
+			if (ImGui::BeginCombo("Render mode", render_mode_labels[data.render_mode]))
+			{
+				for (size_t i = 0; i < RENDER_MODE_NUM_MODES; ++i)
 				{
-					data.render_mode = (RenderMode)i;
-					ResetAccumulator();
+					bool is_selected = i == data.render_mode;
+					if (ImGui::Selectable(render_mode_labels[i], is_selected))
+					{
+						data.render_mode = (RenderMode)i;
+						ResetAccumulator();
+					}
+
+					if (is_selected)
+					{
+						ImGui::SetItemDefaultFocus();
+					}
 				}
 
-				if (is_selected)
+				ImGui::EndCombo();
+			}
+			if (ImGui::BeginCombo("Debug render view", debug_render_mode_labels[data.debug_render_mode]))
+			{
+				for (size_t i = 0; i < DEBUG_RENDER_MODE_NUM_MODES; ++i)
 				{
-					ImGui::SetItemDefaultFocus();
+					bool is_selected = i == data.debug_render_mode;
+					if (ImGui::Selectable(debug_render_mode_labels[i], is_selected))
+					{
+						data.debug_render_mode = (DebugRenderMode)i;
+					}
+
+					if (is_selected)
+					{
+						ImGui::SetItemDefaultFocus();
+					}
 				}
+
+				ImGui::EndCombo();
 			}
 
-			ImGui::EndCombo();
+			ImGui::Unindent(10.0f);
 		}
-		if (ImGui::BeginCombo("Debug render view", debug_render_mode_labels[data.debug_render_mode]))
-		{
-			for (size_t i = 0; i < DEBUG_RENDER_MODE_NUM_MODES; ++i)
-			{
-				bool is_selected = i == data.debug_render_mode;
-				if (ImGui::Selectable(debug_render_mode_labels[i], is_selected))
-				{
-					data.debug_render_mode = (DebugRenderMode)i;
-				}
-
-				if (is_selected)
-				{
-					ImGui::SetItemDefaultFocus();
-				}
-			}
-
-			ImGui::EndCombo();
-		}
+		
 
 		ImGui::SetNextItemOpen(true, ImGuiCond_Once);
 		if (ImGui::CollapsingHeader("Scene"))
@@ -848,6 +884,7 @@ int main(int argc, char* argv[])
 
 			ImGui::Unindent(10.0f);
 		}
+
 		ImGui::End();
 
 		DX12::CopyToBackBuffer(data.pixels.data(), data.pixels.size() * sizeof(uint32_t));
