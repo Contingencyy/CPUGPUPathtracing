@@ -173,24 +173,26 @@ enum RenderMode
 {
 	RENDER_MODE_COMPARISON,
 	RENDER_MODE_BRUTE_FORCE,
-	RENDER_MODE_NEXT_EVENT_EST,
+	RENDER_MODE_ADVANCED,
 	RENDER_MODE_NUM_MODES
 };
 
 const std::vector<const char*> render_mode_labels =
 {
-	"Comparison", "Brute force", "Next event estimation"
+	"Comparison", "Brute force", "Advanced"
 };
 
 enum DebugRenderMode
 {
 	DEBUG_RENDER_MODE_NONE,
+	DEBUG_RENDER_MODE_RAY_DEPTH,
+	DEBUG_RENDER_MODE_BVH_DEPTH,
 	DEBUG_RENDER_MODE_NUM_MODES
 };
 
 const std::vector<const char*> debug_render_mode_labels =
 {
-	"None"
+	"None", "Ray depth", "BVH depth"
 };
 
 struct Object;
@@ -225,6 +227,7 @@ struct Data
 
 	struct Settings
 	{
+		// Can bounce up to max_ray_depth times
 		int32_t max_ray_depth = 5;
 		bool next_event_estimation_enabled = true;
 		bool cosine_weighted_diffuse_reflection_enabled = true;
@@ -355,7 +358,12 @@ LightSample GetRandomLightSourceForSample(const Vec3& hit_pos)
 
  		if (light_source.has_bvh)
 		{
-			EXCEPT("GetRandomLightSourceForSample", "Tried to get a sample from a light source that has a BVH, which is currently not implemented");
+			const Triangle& rand_triangle = light_source.bvh.GetTriangle(RandomUInt32Range(0, light_source.bvh.NumTriangles() - 1));
+
+			sample.pos = RandomPointTriangle(rand_triangle);
+			sample.normal = TriangleNormal(rand_triangle, sample.pos);
+			// This is a very crude approximation for light source area with a complex mesh
+			sample.area = light_source.bvh.GetTotalArea() / 2.0f;
 		}
 		else
 		{
@@ -364,11 +372,7 @@ LightSample GetRandomLightSourceForSample(const Vec3& hit_pos)
 				sample.pos = light_source.primitive.RandomPointFacing(hit_pos);
 				//sample.pos = light_source.primitive.RandomPoint();
 				sample.normal = light_source.primitive.Normal(sample.pos);
-				sample.emission = data.materials[light_source.mat_index].emissive * data.materials[light_source.mat_index].intensity;
 
-				sample.to_light = sample.pos - hit_pos;
-				sample.distance = Vec3Length(sample.to_light);
-				sample.to_light = Vec3Normalize(sample.to_light);
 				// We only sample the visible part of the sphere (hemisphere), so we only calculate half of the sphere's area
 				sample.area = 2.0f * PI * light_source.primitive.sphere.radius_sq;
 				//sample.area = 4.0f * PI * light_source.primitive.sphere.radius_sq;
@@ -378,6 +382,11 @@ LightSample GetRandomLightSourceForSample(const Vec3& hit_pos)
 				EXCEPT("GetRandomLightSourceForSample", "Tried to get a sample from a light source with a primitive type other than PrimitiveType_Sphere");
 			}
 		}
+
+		sample.to_light = sample.pos - hit_pos;
+		sample.distance = Vec3Length(sample.to_light);
+		sample.to_light = Vec3Normalize(sample.to_light);
+		sample.emission = data.materials[light_source.mat_index].emissive * data.materials[light_source.mat_index].intensity;
 	}
 
 	return sample;
@@ -394,6 +403,12 @@ Vec4 TracePathAdvanced(Ray& ray)
 	while (ray_depth <= data.settings.max_ray_depth)
 	{
 		IntersectScene(ray);
+
+		if (ray_depth == 0 && data.debug_render_mode == DEBUG_RENDER_MODE_BVH_DEPTH)
+		{
+			energy += Vec3Lerp(Vec3(0.0f, 1.0f, 0.0f), Vec3(1.0f, 0.0f, 0.0f), ray.payload.bvh_depth / 30.0f);
+			break;
+		}
 
 		// We did not hit anything, terminate path, or sample sky color and then terminate
 		if (ray.payload.obj_idx == ~0u)
@@ -546,6 +561,9 @@ Vec4 TracePathAdvanced(Ray& ray)
 		ray_depth++;
 	}
 
+	if (data.debug_render_mode == DEBUG_RENDER_MODE_RAY_DEPTH)
+		energy = Vec3Lerp(Vec3(0.0f, 1.0f, 0.0f), Vec3(1.0f, 0.0f, 0.0f), (float)ray_depth / data.settings.max_ray_depth);
+
 	return Vec4(energy, 1.0f);
 }
 
@@ -561,6 +579,11 @@ Vec4 TracePath(Ray& ray, uint8_t ray_depth)
 		return final_color;
 
 	IntersectScene(ray);
+
+	if (ray_depth == 0 && data.debug_render_mode == DEBUG_RENDER_MODE_BVH_DEPTH)
+	{
+		return Vec4(Vec3Lerp(Vec3(0.0f, 1.0f, 0.0f), Vec3(1.0f, 0.0f, 0.0f), ray.payload.bvh_depth / 30.0f), 1.0f);
+	}
 
 	// We have not hit any geometry, sample sky or return black
 	if (ray.payload.obj_idx == ~0u)
@@ -693,7 +716,7 @@ void Render()
 						{
 							final_color = TracePath(ray, 0);
 						}
-						else if (data.render_mode == RENDER_MODE_NEXT_EVENT_EST)
+						else if (data.render_mode == RENDER_MODE_ADVANCED)
 						{
 							final_color = TracePathAdvanced(ray);
 						}
@@ -701,8 +724,15 @@ void Render()
 						data.total_energy_received += (double)(final_color.x + final_color.y + final_color.z) * 0.001;
 						uint32_t framebuffer_pos = (y + v) * framebuffer_size.x + (x + u);
 
-						data.accumulator[framebuffer_pos] += final_color;
-						data.pixels[framebuffer_pos] = Vec4ToUint(data.accumulator[framebuffer_pos] / data.num_accumulated);
+						if (data.debug_render_mode == DEBUG_RENDER_MODE_NONE)
+						{
+							data.accumulator[framebuffer_pos] += final_color;
+							data.pixels[framebuffer_pos] = Vec4ToUint(data.accumulator[framebuffer_pos] / data.num_accumulated);
+						}
+						else
+						{
+							data.pixels[framebuffer_pos] = Vec4ToUint(final_color);
+						}
 					}
 	};
 
@@ -741,8 +771,8 @@ int main(int argc, char* argv[])
 	data.materials.emplace_back(Vec3(1.0f), 0.0f, 1.0f, Vec3(0.2f, 0.8f, 0.8f), 1.517f);
 
 	// Load mesh and build its BVH
-	//Mesh dragon_mesh = GLTFLoader::Load("Assets/Models/Dragon/DragonAttenuation.gltf");
-	Mesh dragon_mesh = GLTFLoader::Load("Assets/Models/Cube/Cube.gltf");
+	Mesh dragon_mesh = GLTFLoader::Load("Assets/Models/Dragon/DragonAttenuation.gltf");
+	//Mesh dragon_mesh = GLTFLoader::Load("Assets/Models/Cube/Cube.gltf");
 	data.objects.emplace_back("Dragon", dragon_mesh, 3, BVH::BuildOption_SAHSplitIntervals);
 
 	Mesh ground_mesh;
