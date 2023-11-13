@@ -231,6 +231,7 @@ struct Data
 		int32_t max_ray_depth = 5;
 		bool next_event_estimation_enabled = true;
 		bool cosine_weighted_diffuse_reflection_enabled = true;
+		bool russian_roulette_enabled = true;
 	} settings;
 } static data;
 
@@ -461,6 +462,16 @@ Vec4 TracePathAdvanced(Ray& ray)
 					energy += throughput * (NdotL / light_pdf) * brdf_diffuse * light_sample.emission * data.light_source_indices.size() * diffuse_weight;
 				}
 			}
+		}
+
+		// Russian roulette - Terminate path with a probability based on the material albedo
+		if (data.settings.russian_roulette_enabled)
+		{
+			float survival_probability = Util::SurvivalProbabilityRR(hit.mat->albedo);
+			if (survival_probability < RandomFloat())
+				break;
+			else
+				throughput *= 1.0f / survival_probability;
 		}
 
 		// Evaluate indirect light for current vertex
@@ -766,7 +777,7 @@ int main(int argc, char* argv[])
 	data.camera = Camera(Vec3(0.0f, 0.0f, 8.0f), Vec3(0.0f, 0.0f, -1.0f), 60.0f, (float)framebuffer_size.x / framebuffer_size.y);
 
 	data.materials.emplace_back(Vec3(0.2f, 0.2f, 0.8f), 0.0f);
-	data.materials.emplace_back(Vec3(0.4f), 0.0f);
+	data.materials.emplace_back(Vec3(1.0f), 0.0f);
 	data.materials.emplace_back(Vec3(1.0f, 0.95f, 0.8f), 10.0f, true);
 	data.materials.emplace_back(Vec3(1.0f), 0.0f, 1.0f, Vec3(0.2f, 0.8f, 0.8f), 1.517f);
 
@@ -853,6 +864,7 @@ int main(int argc, char* argv[])
 			ImGui::SliderInt("Max ray depth", &data.settings.max_ray_depth, 1, 16);
 			ImGui::Checkbox("Next event estimation", &data.settings.next_event_estimation_enabled);
 			ImGui::Checkbox("Cosine-weighted diffuse reflection", &data.settings.cosine_weighted_diffuse_reflection_enabled);
+			ImGui::Checkbox("Russian roulette", &data.settings.russian_roulette_enabled);
 
 			if (ImGui::BeginCombo("Render mode", render_mode_labels[data.render_mode]))
 			{

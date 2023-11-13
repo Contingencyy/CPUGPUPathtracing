@@ -29,6 +29,11 @@ namespace Util
 		return Vec3Normalize(normal + Vec3Normalize(dir));
 	}
 
+	float SurvivalProbabilityRR(const Vec3& albedo)
+	{
+		return std::clamp(std::max(std::max(albedo.x, albedo.y), albedo.z), 0.1f, 1.0f);
+	}
+
 	Vec3 Reflect(const Vec3& dir, const Vec3& normal)
 	{
 		return dir - 2.0f * normal * Vec3Dot(dir, normal);
